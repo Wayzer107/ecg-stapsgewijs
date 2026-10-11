@@ -17,6 +17,12 @@ Webapp om een ECG systematisch te beoordelen, bedoeld voor de klinische praktijk
 9. QT-tijd: QTc volgens Bazett, Fridericia, Framingham en Hodges
 10. Conclusie: bevindingen, differentiaaldiagnose en een verslag om te kopiëren
 
+## Bediening
+
+- **Alles normaal** per stap: één tik markeert de stap als normaal en gaat door (sneltoets `N`).
+- **Desktop:** sneltoetsen (`←` `→`, `1`–`0`, `Enter`, `N`, `O`, `M`, `K`, `?`), een **overzichtsmodus** met alle stappen op één pagina, en een **meetlat** om intervallen en amplitudes op een ECG-afbeelding te meten (kalibreren op grote hokjes, meetwaarde direct invullen). De afbeelding blijft op het apparaat.
+- **Telefoon/tablet:** vegen tussen stappen, onderbalk met stappenlijst, scrollende meetlat onder elk invoerveld, ingedrukt houden van − / + voor snel verhogen, en een tikteller voor de strook van 10 s.
+
 ## Technisch
 
 - Statische site zonder build-stap: `index.html`, `app.js`, `styles.css`.

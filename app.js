@@ -19,7 +19,8 @@ class App extends Component {
       pDur: '', pAmp: '', pr: '', av: null, delta: false,
       qrs: '', morph: null, fasc: null, rprog: null, q: {}, sv1: '', rv5: '', ravl: '', sv3: '',
       st: {}, stMax: '', tw: {}, uw: false,
-      qt: '', qtF: 'baz', notes: '', copied: false
+      qt: '', qtF: 'baz', notes: '', copied: false,
+      normal: {}, mode: 'steps', sheet: false, help: false, cal: false
     };
   }
 
@@ -37,9 +38,113 @@ class App extends Component {
     this.setState({ [key]: String(nv).replace('.', ','), copied: false });
   }
 
+  holdStart(e, key, d, o) {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    this.holdStop();
+    this.bump(key, d, o);
+    this.holdT = setTimeout(() => { this.holdI = setInterval(() => this.bump(key, d, o), 75); }, 380);
+  }
+
+  holdStop() { clearTimeout(this.holdT); clearInterval(this.holdI); }
+
+  focusNext(el) {
+    const root = this.panelEl;
+    const list = root ? Array.from(root.querySelectorAll('input.num-in')) : [];
+    const i = list.indexOf(el);
+    if (i >= 0 && i < list.length - 1) { list[i + 1].focus(); list[i + 1].select(); }
+    else if (this.state.mode === 'steps') { el.blur(); this.go(this.state.step + 1); }
+  }
+
+  markNormal(i) {
+    const s = this.state;
+    const patch = { normal: Object.assign({}, s.normal, { [i]: true }), copied: false };
+    if (i === 1) Object.assign(patch, { reg: 'reg', pw: 'yes', conduct: 'yes', pup: 'yes', rhythm: 'sinus' });
+    if (i === 3 && !this.lastAxisDetermined) Object.assign(patch, { axM: 'quad', qI: 'pos', qF: 'pos' });
+    if (i === 4) Object.assign(patch, { av: 'norm', delta: false });
+    if (i === 5) Object.assign(patch, { morph: 'norm', fasc: 'none', rprog: 'norm', q: {} });
+    if (i === 6) patch.st = {};
+    if (i === 7) Object.assign(patch, { tw: {}, uw: false });
+    this.setState(patch);
+    if (s.mode === 'steps' && i < 9) this.go(i + 1);
+  }
+
+  useMeasure(key, val) {
+    const patch = { copied: false };
+    if (key === 'rr') { patch.rateM = 'direct'; patch.hr = String(Math.round(60000 / val)); }
+    else {
+      patch[key] = String(Math.round(val * 10) / 10).replace('.', ',');
+      if (key === 'ampI' || key === 'ampF') patch.axM = 'amp';
+    }
+    this.setState(patch);
+  }
+
+  componentDidMount() {
+    this.onKeyGlobal = (e) => this.handleKey(e);
+    window.addEventListener('keydown', this.onKeyGlobal);
+  }
+
+  componentWillUnmount() { window.removeEventListener('keydown', this.onKeyGlobal); this.holdStop(); }
+
+  handleKey(e) {
+    const s = this.state;
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    if (e.key === 'Escape') {
+      if (s.cal) this.setState({ cal: false });
+      else if (s.help) this.setState({ help: false });
+      else if (s.sheet) this.setState({ sheet: false });
+      else if (typing) t.blur();
+      return;
+    }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey || s.cal) return;
+    const k = e.key;
+    let done = true;
+    if (k === 'ArrowRight' || k === 'PageDown') this.go(s.step + 1);
+    else if (k === 'ArrowLeft' || k === 'PageUp') this.go(s.step - 1);
+    else if (/^[0-9]$/.test(k)) this.go(k === '0' ? 9 : Number(k) - 1);
+    else if (k === 'n' || k === 'N') { if (s.step >= 1 && s.step <= 8) this.markNormal(s.step); }
+    else if (k === 'k' || k === 'K') { if (this.lastVals) this.lastVals.copy(); }
+    else if (k === 'o' || k === 'O') this.setMode(s.mode === 'steps' ? 'overview' : 'steps');
+    else if (k === 'm' || k === 'M') this.setState({ cal: true });
+    else if (k === '?') this.setState({ help: !s.help });
+    else if (k === 'Enter' && s.mode === 'steps') {
+      const first = this.panelEl && this.panelEl.querySelector('input.num-in');
+      if (first) { first.focus(); first.select(); } else done = false;
+    }
+    else done = false;
+    if (done) e.preventDefault();
+  }
+
+  setMode(m) {
+    this.setState({ mode: m, sheet: false });
+    if (m === 'overview') setTimeout(() => this.scrollToSec(this.state.step), 40);
+  }
+
+  scrollToSec(i) {
+    const el = document.getElementById('sec-' + i);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+
+  swipeStart(e) {
+    const t = e.touches && e.touches[0];
+    if (!t || this.state.mode !== 'steps') { this.sw = null; return; }
+    if (e.target.closest && e.target.closest('svg.wheel, .ruler, input, textarea, .tabs, .steps')) { this.sw = null; return; }
+    this.sw = { x: t.clientX, y: t.clientY, t: Date.now() };
+  }
+
+  swipeEnd(e) {
+    const st = this.sw; this.sw = null;
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!st || !t) return;
+    const dx = t.clientX - st.x, dy = t.clientY - st.y;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy) && Date.now() - st.t < 700) this.go(this.state.step + (dx < 0 ? 1 : -1));
+  }
+
   go(i) {
     const i2 = Math.max(0, Math.min(9, i));
-    this.setState({ step: i2, maxStep: Math.max(this.state.maxStep, i2), copied: false });
+    if (this.state.mode === 'overview') { this.setState({ step: i2, sheet: false }); this.scrollToSec(i2); return; }
+    this.setState({ step: i2, maxStep: Math.max(this.state.maxStep, i2), copied: false, sheet: false });
     setTimeout(() => {
       const el = this.panelEl;
       if (el && el.getBoundingClientRect && el.getBoundingClientRect().top < 0 && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -111,8 +216,13 @@ class App extends Component {
       return {
         id: 'f-' + key, label, unit, value: s[key], ph: o.ph || '', mode: o.signed ? 'text' : 'decimal',
         onInput: (e) => this.setState({ [key]: e.target.value, copied: false }),
-        onKey: (e) => { if (e.key === 'Enter') { e.preventDefault(); next(); } },
-        dec: () => this.bump(key, -step, o), inc: () => this.bump(key, step, o),
+        onKey: (e) => { if (e.key === 'Enter') { e.preventDefault(); this.focusNext(e.target); } },
+        dec: (e) => { if (e && e.detail === 0) this.bump(key, -step, o); },
+        inc: (e) => { if (e && e.detail === 0) this.bump(key, step, o); },
+        holdDec: (e) => this.holdStart(e, key, -step, o), holdInc: (e) => this.holdStart(e, key, step, o),
+        holdStop: () => this.holdStop(),
+        ruler: o.ruler ? { min: o.ruler[0], max: o.ruler[1], step: o.ruler[2] || step, major: o.ruler[3], start: o.start != null ? o.start : o.ruler[0] } : null,
+        num: v, set: (val) => this.setState({ [key]: String(val).replace('.', ','), copied: false }),
         ev: ev ? ev[1] : (o.hint || ''), evCls: ev ? 'ev ' + ev[0] : 'ev'
       };
     };
@@ -131,10 +241,10 @@ class App extends Component {
     const rateText = !hrOk ? 'Voer een waarde in' : hr < 60 ? 'Bradycardie (< 60/min)' : hr > 100 ? 'Tachycardie (> 100/min)' : 'Normale frequentie (60–100/min)';
     const largeDiv = s.speed === 25 ? 300 : 600, smallDiv = s.speed === 25 ? 1500 : 3000;
     let rateFields = [];
-    if (s.rateM === 'direct') rateFields = [fld('hr', 'Hartfrequentie', '/min', 1, { start: 70, min: 0, max: 350, ph: '—' })];
-    if (s.rateM === 'large') rateFields = [fld('large', 'Grote hokjes tussen twee R-toppen', 'hokjes', 0.5, { start: 4, min: 0.5, ph: '—', hint: 'Frequentie = ' + largeDiv + ' ÷ grote hokjes' })];
-    if (s.rateM === 'small') rateFields = [fld('small', 'Kleine hokjes tussen twee R-toppen', 'hokjes', 1, { start: 20, min: 1, ph: '—', hint: 'Frequentie = ' + smallDiv + ' ÷ kleine hokjes' })];
-    if (s.rateM === 'count') rateFields = [fld('count', 'QRS-complexen op de strook van 10 s', 'slagen', 1, { start: 7, min: 0, ph: '—', hint: 'Frequentie = aantal × 6' })];
+    if (s.rateM === 'direct') rateFields = [fld('hr', 'Hartfrequentie', '/min', 1, { start: 70, min: 0, max: 350, ph: '—', ruler: [20, 220] })];
+    if (s.rateM === 'large') rateFields = [fld('large', 'Grote hokjes tussen twee R-toppen', 'hokjes', 0.5, { start: 4, min: 0.5, ph: '—', ruler: [1, 15, 0.5, 2], hint: 'Frequentie = ' + largeDiv + ' ÷ grote hokjes' })];
+    if (s.rateM === 'small') rateFields = [fld('small', 'Kleine hokjes tussen twee R-toppen', 'hokjes', 1, { start: 20, min: 1, ph: '—', ruler: [3, 75], hint: 'Frequentie = ' + smallDiv + ' ÷ kleine hokjes' })];
+    if (s.rateM === 'count') rateFields = [fld('count', 'QRS-complexen op de strook van 10 s', 'slagen', 1, { start: 7, min: 0, ph: '—', hint: 'Frequentie = aantal × 6', ruler: [0, 40] })];
 
     /* ---------- ritme ---------- */
     const qrsV = N('qrs');
@@ -234,14 +344,15 @@ class App extends Component {
     const pEvAmp = (v) => { const c = v * gc; const extra = s.gain !== 10 ? ' — ' + r1(c) + ' mm bij 10 mm/mV' : ''; return c > 2.5 ? ['abn', 'Hoog: rechteratriumvergroting (P pulmonale)' + extra] : ['ok', 'Normaal (≤ 2,5 mm)' + extra]; };
     const prEv = (v) => v < 120 ? ['abn', 'Kort: pre-excitatie of laag-atriale/junctionele oorsprong'] : v > 200 ? ['abn', 'Verlengd: eerstegraads AV-blok'] : ['ok', 'Normaal (120–200 ms)'];
     const pFields = [
-      fld('pDur', 'Duur P-top', 'ms', 10, { start: 100, min: 0, ph: '—', ev: pEvDur }),
-      fld('pAmp', 'Amplitude P-top in II', 'mm', 0.5, { start: 1.5, min: 0, ph: '—', ev: pEvAmp }),
-      fld('pr', 'PQ-tijd', 'ms', 10, { start: 160, min: 0, ph: '—', ev: prEv })
+      fld('pDur', 'Duur P-top', 'ms', 10, { start: 100, min: 0, ph: '—', ev: pEvDur, ruler: [40, 200] }),
+      fld('pAmp', 'Amplitude P-top in II', 'mm', 0.5, { start: 1.5, min: 0, ph: '—', ev: pEvAmp, ruler: [0, 6, 0.5, 2] }),
+      fld('pr', 'PQ-tijd', 'ms', 10, { start: 160, min: 0, ph: '—', ev: prEv, ruler: [60, 400] })
     ];
     const AVN = { norm: 'Normale AV-geleiding', av1: 'Eerstegraads AV-blok', mob1: 'Tweedegraads AV-blok, Mobitz I (Wenckebach)', mob2: 'Tweedegraads AV-blok, Mobitz II', two1: '2:1 AV-blok', av3: 'Derdegraads (totaal) AV-blok' };
     const pParts = [], pFlags = [];
     if (!isNaN(pDur)) { pParts.push(pDur + ' ms'); if (pDur >= 120) pFlags.push('P mitrale'); }
     if (!isNaN(pAmpC)) { pParts.push(r1(pAmpC) + ' mm'); if (pAmpC > 2.5) pFlags.push('P pulmonale'); }
+    const NM = s.normal || {};
     const pText = pParts.length ? pParts.join(', ') + (pFlags.length ? ' — ' + pFlags.join(', ') : '') : '';
     const prParts = [];
     let prAbn = false;
@@ -249,11 +360,13 @@ class App extends Component {
     if (s.av) { if (s.av !== 'norm') { prParts.push(AVN[s.av]); prAbn = true; } }
     else if (!isNaN(pr) && pr > 200) prParts.push('eerstegraads AV-blok');
     if (s.delta) { prParts.push('deltagolf'); prAbn = true; }
-    const prText = prParts.join(', ');
+    let prText = prParts.join(', ');
+    if (!prText && (s.av === 'norm' || NM[4])) prText = 'Normale AV-geleiding';
+    const pTextN = pText || (NM[4] ? 'Normaal' : '');
 
     /* ---------- QRS ---------- */
     const qrsEv = (v) => v >= 120 ? ['abn', 'Verbreed (≥ 120 ms): bundeltakblok, ventriculaire oorsprong, pre-excitatie of pacing'] : v >= 110 ? ['abn', 'Licht verlengd (110–119 ms): incompleet blok / IVCD'] : ['ok', 'Normaal (< 110 ms)'];
-    const qrsFields = [fld('qrs', 'QRS-duur', 'ms', 10, { start: 90, min: 0, ph: '—', ev: qrsEv })];
+    const qrsFields = [fld('qrs', 'QRS-duur', 'ms', 10, { start: 90, min: 0, ph: '—', ev: qrsEv, ruler: [40, 240] })];
     const MORPH = { norm: 'Normaal', rbbb: 'RBTB', lbbb: 'LBTB', irbbb: 'Incompleet RBTB', ivcd: 'Aspecifieke IVCD', paced: 'Ventriculair gepaced' };
     const FASC = { none: '', lafb: 'LAHB', lpfb: 'LPHB' };
     const RPROG = { norm: 'Normaal', poor: 'Slechte R-topprogressie', early: 'Vroege transitie' };
@@ -288,10 +401,10 @@ class App extends Component {
     ];
     const lvh = (sokOk && sok >= 35) || (cornOk && corn > cornThr);
     const lvhFields = [
-      fld('sv1', 'S in V1', 'mm', 1, { start: 10, min: 0, ph: '—' }),
-      fld('rv5', 'R in V5 of V6 (grootste)', 'mm', 1, { start: 15, min: 0, ph: '—' }),
-      fld('ravl', 'R in aVL', 'mm', 1, { start: 6, min: 0, ph: '—' }),
-      fld('sv3', 'S in V3', 'mm', 1, { start: 10, min: 0, ph: '—' })
+      fld('sv1', 'S in V1', 'mm', 1, { start: 10, min: 0, ph: '—', ruler: [0, 50] }),
+      fld('rv5', 'R in V5 of V6 (grootste)', 'mm', 1, { start: 15, min: 0, ph: '—', ruler: [0, 50] }),
+      fld('ravl', 'R in aVL', 'mm', 1, { start: 6, min: 0, ph: '—', ruler: [0, 50] }),
+      fld('sv3', 'S in V3', 'mm', 1, { start: 10, min: 0, ph: '—', ruler: [0, 50] })
     ];
     const qrsParts = [];
     let qrsAbn = false;
@@ -301,7 +414,8 @@ class App extends Component {
     if (s.rprog && s.rprog !== 'norm') { qrsParts.push(RPROG[s.rprog].toLowerCase()); qrsAbn = true; }
     if (qLeads.length) { qrsParts.push('pathologische Q in ' + qLeads.join(', ')); qrsAbn = true; }
     if (lvh) { qrsParts.push('LVH-spanningscriteria positief'); qrsAbn = true; }
-    const qrsText = qrsParts.join(', ');
+    let qrsText = qrsParts.join(', ');
+    if (!qrsText && (NM[5] || s.morph === 'norm')) qrsText = 'Smal, normale morfologie';
 
     /* ---------- ST ---------- */
     const stUp = leadsWith(s.st, 'up'), stDown = leadsWith(s.st, 'down');
@@ -322,11 +436,11 @@ class App extends Component {
     if ((terrUp.Anterior + terrUp.Septaal) >= 2 && stDown.some((l) => ['II', 'III', 'aVF'].indexOf(l) >= 0)) stNotes.push({ t: 'Inferieure depressie is spiegelbeeldig aan de anterieure elevatie.' });
     if (!stUp.length && stDown.filter((l) => ['V1', 'V2', 'V3'].indexOf(l) >= 0).length >= 2) stNotes.push({ t: 'Depressie in V1–V3: denk aan een posterieur infarct — maak V7–V9.' });
     if (stUp.length >= 7) stNotes.push({ t: 'Uitgebreide elevatie: pericarditis (let op PQ-depressie) vs. uitgebreid infarct.' });
-    const stFields = [fld('stMax', 'Grootste ST-deviatie', 'mm', 0.5, { start: 1, min: 0, ph: '—', hint: 'Op het J-punt, ten opzichte van het PQ-segment' })];
+    const stFields = [fld('stMax', 'Grootste ST-deviatie', 'mm', 0.5, { start: 1, min: 0, ph: '—', ruler: [0, 10, 0.5, 2], hint: 'Op het J-punt, ten opzichte van het PQ-segment' })];
     const stMaxV = N('stMax') * gc;
     let stText = '';
     if (stUp.length || stDown.length) stText = [stUp.length ? 'Elevatie ' + stUp.join(', ') : null, stDown.length ? 'depressie ' + stDown.join(', ') : null].filter(Boolean).join('; ') + (!isNaN(stMaxV) ? ' (max ' + r1(stMaxV) + ' mm)' : '');
-    else if (s.maxStep >= 6) stText = 'Geen ST-deviatie';
+    else if (s.maxStep >= 6 || NM[6]) stText = 'Geen ST-deviatie';
     const stAbn = stUp.length > 0 || stDown.length > 0;
 
     /* ---------- T ---------- */
@@ -342,7 +456,7 @@ class App extends Component {
     if (tPeak.length) tBits.push('spits ' + tPeak.join(', '));
     if (s.uw) tBits.push('U-golven');
     let tText = tBits.join('; ');
-    if (!tText && s.maxStep >= 7) tText = 'Normale T-toppen';
+    if (!tText && (s.maxStep >= 7 || NM[7])) tText = 'Normale T-toppen';
     const tAbn = (tInv.length > 0 && !variantOnly) || tFlat.length > 0 || tPeak.length > 0 || s.uw;
 
     /* ---------- QT ---------- */
@@ -363,14 +477,15 @@ class App extends Component {
       const on = s.qtF === k;
       return { name, f, val: !isNaN(v) ? v + ' ms' : '—', ev: ev ? ev[1] : '', cls: 'qcard' + (ev ? ' ' + ev[0] : '') + (on ? ' on' : ''), pressed: on ? 'true' : 'false', pick: () => this.setState({ qtF: k, copied: false }) };
     });
-    const qtFields = [fld('qt', 'QT-tijd', 'ms', 10, { start: 400, min: 0, ph: '—', hint: 'Begin QRS tot einde T-top (raaklijnmethode)' })];
+    const qtFields = [fld('qt', 'QT-tijd', 'ms', 10, { start: 400, min: 0, ph: '—', ruler: [200, 700], hint: 'Begin QRS tot einde T-top (raaklijnmethode)' })];
     const qtNotes = [];
     if (qrsV >= 120) qtNotes.push({ t: 'Een verbreed QRS verlengt de QT-tijd: beoordeel het JT-interval (QT − QRS) of gebruik een voor QRS-duur gecorrigeerde formule.' });
     if (hrOk && hr > 90) qtNotes.push({ t: 'Frequentie > 90/min: Bazett overschat — gebruik bij voorkeur Fridericia.' });
     const sel = FORM.filter((x) => x[0] === s.qtF)[0];
     const qtcSel = qtOk ? Math.round(sel[3]()) : NaN;
     const qtcSelEv = !isNaN(qtcSel) ? qtcEv(qtcSel) : null;
-    const qtcText = !isNaN(qtcSel) ? 'QT ' + qt + ' ms, QTc ' + qtcSel + ' ms (' + sel[1] + ')' + (qtcSelEv[0] === 'abn' ? ' — ' + qtcSelEv[1].toLowerCase() : '') : (!isNaN(qt) ? 'QT ' + qt + ' ms' : '');
+    const qtcText0 = !isNaN(qtcSel) ? 'QT ' + qt + ' ms, QTc ' + qtcSel + ' ms (' + sel[1] + ')' + (qtcSelEv[0] === 'abn' ? ' — ' + qtcSelEv[1].toLowerCase() : '') : (!isNaN(qt) ? 'QT ' + qt + ' ms' : '');
+    const qtcText = qtcText0 || (NM[8] ? 'Normaal (niet gemeten)' : '');
     const qtcAbn = !!qtcSelEv && qtcSelEv[0] === 'abn';
 
     /* ---------- differentiaaldiagnose ---------- */
@@ -475,9 +590,9 @@ class App extends Component {
     /* ---------- samenvatting ---------- */
     const rows = [
       ['Ritme', rhythmText, rhythmAbn],
-      ['Frequentie', hrOk ? hr + '/min' : '', rateAbn],
+      ['Frequentie', hrOk ? hr + '/min' : (NM[2] ? 'Normaal (60–100/min)' : ''), rateAbn],
       ['As', axDetermined ? axShort + ' — ' + axCat.toLowerCase() : '', axisAbn],
-      ['P-top', pText, pFlags.length > 0],
+      ['P-top', pTextN, pFlags.length > 0],
       ['PQ / AV', prText, prAbn],
       ['QRS', qrsText, qrsAbn],
       ['ST', stText, stAbn],
@@ -485,7 +600,7 @@ class App extends Component {
       ['QT', qtcText, qtcAbn]
     ];
     const sumRows = rows.map(([k, v, abn]) => ({ k, v: v || '—', cls: 'srow' + (abn ? ' abn' : '') + (!v ? ' empty' : '') }));
-    const lead = [rhythmText, hrOk ? hr + '/min' : '', axDetermined ? axCat.toLowerCase() : ''].filter(Boolean).join(', ');
+    const lead = [rhythmText, hrOk ? hr + '/min' : (NM[2] ? 'normale frequentie' : ''), axDetermined ? axCat.toLowerCase() : ''].filter(Boolean).join(', ');
     const abnRest = rows.slice(3).filter((r) => r[2] && r[1]).map((r) => r[0] + ': ' + r[1]);
     let conclusion = '';
     if (lead || abnRest.length) conclusion = (lead ? lead.charAt(0).toUpperCase() + lead.slice(1) : '') + (abnRest.length ? (lead ? '. ' : '') + abnRest.join('. ') + '.' : (lead ? '. Verder geen afwijkingen vastgelegd.' : ''));
@@ -499,27 +614,43 @@ class App extends Component {
     const navVals = [
       [s.speed + ' mm/s · ' + s.gain + ' mm/mV', false],
       [rhythmText, rhythmAbn],
-      [hrOk ? hr + '/min' : '', rateAbn],
+      [hrOk ? hr + '/min' : (NM[2] ? 'Normaal' : ''), rateAbn],
       [axShort, axisAbn],
-      [!isNaN(pr) ? 'PQ ' + pr + ' ms' : (s.av ? AVN[s.av] : ''), prAbn || pFlags.length > 0],
+      [!isNaN(pr) ? 'PQ ' + pr + ' ms' : (s.av ? AVN[s.av] : (NM[4] ? 'Normaal' : '')), prAbn || pFlags.length > 0],
       [!isNaN(qrsV) ? 'QRS ' + qrsV + ' ms' : (qrsText || ''), qrsAbn],
-      [stUp.length || stDown.length ? (stUp.length ? stUp.length + ' elevatie' : '') + (stUp.length && stDown.length ? ', ' : '') + (stDown.length ? stDown.length + ' depressie' : '') : (s.maxStep >= 6 ? 'Geen deviatie' : ''), stAbn],
-      [tBits.length ? tBits.join('; ') : (s.maxStep >= 7 ? 'Normaal' : ''), tAbn],
-      [!isNaN(qtcSel) ? 'QTc ' + qtcSel + ' ms' : '', qtcAbn],
+      [stUp.length || stDown.length ? (stUp.length ? stUp.length + ' elevatie' : '') + (stUp.length && stDown.length ? ', ' : '') + (stDown.length ? stDown.length + ' depressie' : '') : ((s.maxStep >= 6 || NM[6]) ? 'Geen deviatie' : ''), stAbn],
+      [tBits.length ? tBits.join('; ') : ((s.maxStep >= 7 || NM[7]) ? 'Normaal' : ''), tAbn],
+      [!isNaN(qtcSel) ? 'QTc ' + qtcSel + ' ms' : (NM[8] ? 'Normaal' : ''), qtcAbn],
       ['', false]
     ];
     const nav = STEPS.map(([title], i) => ({
       num: String(i + 1), title, val: navVals[i][0] || ' ',
       cur: i === s.step ? 'step' : 'false',
       cls: 'navbtn' + (i === s.step ? ' cur' : '') + (navVals[i][0] && i > 0 ? (navVals[i][1] ? ' flag' : ' done') : ''),
-      go: () => this.go(i)
+      go: () => this.go(i),
+      seg: 'seg' + (i === s.step ? ' cur' : '') + (navVals[i][0] && i > 0 ? (navVals[i][1] ? ' flag' : ' done') : '')
     }));
+    this.lastAxisDetermined = axDetermined;
 
     const copy = () => this.copyText(fullReport);
     const st = s.step;
-    return {
+    const out = {
       setupLine: s.speed + ' mm/s · ' + s.gain + ' mm/mV · ' + (s.sex === 'F' ? 'Vrouw' : 'Man'),
-      reset: () => this.setState(this.initState()),
+      reset: () => this.setState(Object.assign(this.initState(), { mode: s.mode })),
+      mode: s.mode, overview: s.mode === 'overview',
+      setSteps: () => this.setMode('steps'), setOverview: () => this.setMode('overview'),
+      steps: STEPS,
+      sheetOpen: s.sheet, openSheet: () => this.setState({ sheet: true }), closeSheet: () => this.setState({ sheet: false }),
+      helpOpen: s.help, toggleHelp: () => this.setState({ help: !s.help }),
+      calOpen: s.cal, openCal: () => this.setState({ cal: true }), closeCal: () => this.setState({ cal: false }),
+      useMeasure: (k, val) => this.useMeasure(k, val),
+      normalFor: (i) => ({ on: !!NM[i], pick: () => this.markNormal(i) }),
+      swipeStart: (e) => this.swipeStart(e), swipeEnd: (e) => this.swipeEnd(e),
+      shortTitle: STEPS[st][0], nextShort: st < 9 ? 'Volgende' : (s.copied ? 'Gekopieerd' : 'Kopieer'),
+      countVal: isNaN(N('count')) ? 0 : N('count'),
+      tapQrs: () => this.setState({ count: String((isNaN(this.num(this.state.count)) ? 0 : this.num(this.state.count)) + 1), copied: false }),
+      tapReset: () => this.setState({ count: '', copied: false }),
+      rateM: s.rateM, speed: s.speed, gain: s.gain,
       nav, panelRef: this.panelRef,
       stepNum: String(st + 1).padStart(2, '0'), stepTitle: STEPS[st][0], stepLead: STEPS[st][1],
       is0: st === 0, is1: st === 1, is2: st === 2, is3: st === 3, is4: st === 4, is5: st === 5, is6: st === 6, is7: st === 7, is8: st === 8, is9: st === 9,
@@ -550,10 +681,10 @@ class App extends Component {
       qIChips: chips('qI', polOpts), qFChips: chips('qF', polOpts), qIIChips: chips('qII', polOpts),
       isoChips, candChips, hasCands: cands.length === 2,
       ampFields: [
-        fld('ampI', 'Netto QRS in afleiding I', 'mm', 1, { start: 0, signed: true, ph: '—' }),
-        fld('ampF', 'Netto QRS in aVF', 'mm', 1, { start: 0, signed: true, ph: '—' })
+        fld('ampI', 'Netto QRS in afleiding I', 'mm', 1, { start: 0, signed: true, ph: '—', ruler: [-25, 25] }),
+        fld('ampF', 'Netto QRS in aVF', 'mm', 1, { start: 0, signed: true, ph: '—', ruler: [-25, 25] })
       ],
-      manFields: [fld('man', 'As', '°', 5, { start: 60, min: -180, max: 180, signed: true, ph: '—' })],
+      manFields: [fld('man', 'As', '°', 5, { start: 60, min: -180, max: 180, signed: true, ph: '—', ruler: [-180, 180, 5, 6] })],
       axBig, axCat, axCls, axNote, hasAxNote: !!axNote,
       cabChip: tog('cab', 'Toon omgekeerde afleidingen (Cabrera)'),
       cabOp: s.cab ? 1 : 0,
@@ -592,20 +723,27 @@ class App extends Component {
       notes: s.notes, onNotes: (e) => this.setState({ notes: e.target.value, copied: false }),
       copy, copyLabel: s.copied ? 'Gekopieerd' : 'Kopieer verslag'
     };
+    this.lastVals = out;
+    return out;
   }
+
 
   render() {
     const v = this.vals();
+    const step = this.state.step;
+    const MEAS = [2, 4, 5, 6, 8];
+
     const chipRow = (list) => html`<div class="chips">${list.map((c) => html`<button type="button" class=${c.cls} aria-pressed=${c.pressed} onClick=${c.pick}>${c.label}</button>`)}</div>`;
     const tabRow = (list, label) => html`<div class="tabs" role="group" aria-label=${label}>${list.map((c) => html`<button type="button" class=${c.cls} aria-pressed=${c.pressed} onClick=${c.pick}>${c.label}</button>`)}</div>`;
     const field = (f, showEv = true) => html`
-      <div class="field">
+      <div class="field" key=${f.id}>
         <label for=${f.id}>${f.label}</label>
         <div class="ctrl">
-          <button type="button" class="sbtn" onClick=${f.dec} aria-label=${'Verlaag ' + f.label}>−</button>
-          <div class="inwrap"><input id=${f.id} class="num-in" type="text" inputmode=${f.mode} autocomplete="off" value=${f.value} onInput=${f.onInput} onKeyDown=${f.onKey} placeholder=${f.ph} /><span class="unit">${f.unit}</span></div>
-          <button type="button" class="sbtn" onClick=${f.inc} aria-label=${'Verhoog ' + f.label}>+</button>
+          <button type="button" class="sbtn" onClick=${f.dec} onPointerDown=${f.holdDec} onPointerUp=${f.holdStop} onPointerLeave=${f.holdStop} onPointerCancel=${f.holdStop} onContextMenu=${(e) => e.preventDefault()} aria-label=${'Verlaag ' + f.label}>−</button>
+          <div class="inwrap"><input id=${f.id} class="num-in" type="text" inputmode=${f.mode} autocomplete="off" enterkeyhint="next" value=${f.value} onInput=${f.onInput} onKeyDown=${f.onKey} placeholder=${f.ph} /><span class="unit">${f.unit}</span></div>
+          <button type="button" class="sbtn" onClick=${f.inc} onPointerDown=${f.holdInc} onPointerUp=${f.holdStop} onPointerLeave=${f.holdStop} onPointerCancel=${f.holdStop} onContextMenu=${(e) => e.preventDefault()} aria-label=${'Verhoog ' + f.label}>+</button>
         </div>
+        ${f.ruler && html`<${Ruler} min=${f.ruler.min} max=${f.ruler.max} step=${f.ruler.step} major=${f.ruler.major} start=${f.ruler.start} value=${f.num} onSet=${f.set} />`}
         ${showEv && html`<div class=${f.evCls}>${f.ev}</div>`}
       </div>`;
     const fields = (list, showEv = true) => html`<div class="fields">${list.map((f) => field(f, showEv))}</div>`;
@@ -614,6 +752,11 @@ class App extends Component {
     const notes = (list) => list.length ? html`<div class="notes">${list.map((x) => html`<div class="n">${x.t}</div>`)}</div>` : null;
     const sumRows = v.sumRows.map((r) => html`<div class=${r.cls}><span class="k">${r.k}</span><span class="v">${r.v}</span></div>`);
     const T = (x, y, s, w, fill, txt) => html`<text x=${x} y=${y} font-size=${s} font-weight=${w} fill=${fill} text-anchor="middle" dominant-baseline="middle">${txt}</text>`;
+    const check = html`<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
+    const normalBtn = (i) => { const n = v.normalFor(i); return html`<button type="button" class=${n.on ? 'nbtn on' : 'nbtn'} onClick=${n.pick} title="Sneltoets: N">${check}${n.on ? 'Normaal' : 'Alles normaal'}</button>`; };
+    const calBtn = html`<button type="button" class="btn ghost small calbtn" onClick=${v.openCal} title="Sneltoets: M">Meten op afbeelding</button>`;
+    const tools = (i) => html`<div class="phead-tools">${MEAS.indexOf(i) >= 0 && calBtn}${i >= 1 && i <= 8 && normalBtn(i)}</div>`;
+    const navBtn = (n) => html`<button type="button" class=${n.cls} onClick=${n.go} aria-current=${n.cur}><span class="num">${n.num}</span><span class="meta"><span class="t">${n.title}</span><span class="val">${n.val}</span></span></button>`;
 
     const wheel = html`
       <svg class="wheel" viewBox="-175 -175 350 350" role="img" aria-label=${v.wheelAria} onPointerDown=${v.wDown} onPointerMove=${v.wMove} onPointerUp=${v.wUp} onPointerCancel=${v.wUp}>
@@ -656,36 +799,15 @@ class App extends Component {
         ${[[157, 0, '0°'], [135.1, 78, '+30'], [78, 135.1, '+60'], [0, 157, '+90'], [-78, 135.1, '+120'], [-135.1, 78, '+150'], [-157, 0, '±180'], [-135.1, -78, '−150'], [-78, -135.1, '−120'], [0, -157, '−90'], [78, -135.1, '−60'], [135.1, -78, '−30']].map(([x, y, t]) => T(x, y, 9, 400, '#5a6573', t))}
       </svg>`;
 
-    return html`
-<div class="app">
-  <header class="top">
-    <div class="brand">
-      <svg width="36" height="20" viewBox="0 0 36 20" aria-hidden="true"><path d="M1 12h8l2-5 3 11 4-17 3 11h14" fill="none" stroke="#b3261e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"></path></svg>
-      <span>ECG Stapsgewijs</span>
-    </div>
-    <div class="topmeta">${v.setupLine}</div>
-    <button type="button" class="btn ghost small" onClick=${v.reset}>Nieuw ECG</button>
-  </header>
-
-  <div class="shell">
-    <nav class="steps" aria-label="Stappen">
-      ${v.nav.map((n) => html`<button type="button" class=${n.cls} onClick=${n.go} aria-current=${n.cur}><span class="num">${n.num}</span><span class="meta"><span class="t">${n.title}</span><span class="val">${n.val}</span></span></button>`)}
-    </nav>
-
-    <main class="panel" ref=${v.panelRef}>
-      <div class="phead">
-        <div class="kicker">Stap ${v.stepNum} / 10</div>
-        <h2>${v.stepTitle}</h2>
-        <p class="lead-in">${v.stepLead}</p>
-      </div>
-
-      ${v.is0 && html`<div class="stack">
+    /* ---------- step bodies ---------- */
+    const bodies = [
+      () => html`<div class="stack">
         ${group('Papiersnelheid', chipRow(v.speedChips))}
         <div class="group"><div class="glabel">IJking (versterking)</div>${chipRow(v.gainChips)}<p class="note">Spanningswaarden die je later invoert (P-amplitude, LVH-criteria, ST-deviatie) worden omgerekend naar de standaard 10 mm/mV.</p></div>
         ${group('Geslacht', chipRow(v.sexChips), 'Bepaalt de afkapwaarden voor QTc en Cornell.')}
-      </div>`}
+      </div>`,
 
-      ${v.is1 && html`<div class="stack">
+      () => html`<div class="stack">
         ${group('RR-intervallen', chipRow(v.regChips))}
         ${group('Atriale activiteit', chipRow(v.pwChips))}
         ${group('Na elke P-top een QRS, voor elk QRS een P-top?', chipRow(v.conChips))}
@@ -693,16 +815,20 @@ class App extends Component {
         ${v.showSugg && html`<div class="sugg"><span>Suggestie: <b>${v.suggName}</b></span><button type="button" class="btn small" onClick=${v.applySugg}>Overnemen</button></div>`}
         ${group('Ritme', chipRow(v.rhChips))}
         ${v.conductNote && html`<div class="notes"><div class="n">Geen 1:1-relatie tussen P en QRS — classificeer het AV-blok in stap 5.</div></div>`}
-      </div>`}
+      </div>`,
 
-      ${v.is2 && html`<div class="stack">
+      () => html`<div class="stack">
         ${tabRow(v.rateTabs, 'Methode frequentie')}
+        ${v.rateM === 'count' && html`<div class="tapper">
+          <button type="button" class="tapbtn" onClick=${v.tapQrs}>Tik per QRS-complex<span>${v.countVal}</span></button>
+          <button type="button" class="btn ghost" onClick=${v.tapReset}>Opnieuw</button>
+        </div>`}
         ${fields(v.rateFields)}
         <div class=${v.rateCls}><div class="big">${v.rateBig}<span class="bu">/min</span></div><div class="rtext">${v.rateText}</div></div>
         <p class="note">Bij ${v.speedTxt}: 1 groot hokje = ${v.largeMs} ms, 1 klein hokje = ${v.smallMs} ms. Gebruik bij een irregulair ritme de strook van 10 seconden.</p>
-      </div>`}
+      </div>`,
 
-      ${v.is3 && html`<div class="axis-grid">
+      () => html`<div class="axis-grid">
         <div>
           ${wheel}
           <div class="legend">
@@ -729,15 +855,15 @@ class App extends Component {
           ${chipRow(v.cabChip)}
           <p class="note">Tik of sleep op het wiel om de as direct in te stellen. Sommige bronnen leggen de bovengrens van normaal bij +100° of +110°.</p>
         </div>
-      </div>`}
+      </div>`,
 
-      ${v.is4 && html`<div class="stack">
+      () => html`<div class="stack">
         ${fields(v.pFields)}
         ${group('AV-geleiding', chipRow(v.avChips))}
         <div class="group"><div class="glabel">Pre-excitatie</div>${chipRow(v.deltaChip)}<p class="note">Korte PQ-tijd met deltagolf en verbreed QRS: WPW-patroon.</p></div>
-      </div>`}
+      </div>`,
 
-      ${v.is5 && html`<div class="stack">
+      () => html`<div class="stack">
         ${fields(v.qrsFields)}
         ${group('Morfologie', chipRow(v.morphChips))}
         ${group('Hemiblok', chipRow(v.fascChips), v.hasFascHint ? v.fascHint : null)}
@@ -748,35 +874,35 @@ class App extends Component {
           ${fields(v.lvhFields, false)}
           <div class="cards">${v.lvhCards.map((k) => html`<div class=${k.cls}><span class="cn">${k.name}</span><span class="cv">${k.val}</span><span class="cc">${k.crit}</span></div>`)}</div>
         </div>
-      </div>`}
+      </div>`,
 
-      ${v.is6 && html`<div class="stack">
+      () => html`<div class="stack">
         ${leadGrid(v.stGrid)}
         ${fields(v.stFields)}
         <div class="terrs">${v.terrs.map((t) => html`<div class=${t.cls}><span class="tn">${t.name}</span><span class="tl">${t.leads}</span><span class="tt">${t.text}</span></div>`)}</div>
         ${notes(v.stNotes)}
         <p class="note">STEMI-afkapwaarde (nieuwe elevatie op het J-punt, ≥ 2 aangrenzende afleidingen): ≥ 1 mm in alle afleidingen behalve V2–V3; daar ≥ 2 mm bij mannen ≥ 40 jaar, ≥ 2,5 mm bij mannen ${'<'} 40 jaar en ≥ 1,5 mm bij vrouwen.</p>
-      </div>`}
+      </div>`,
 
-      ${v.is7 && html`<div class="stack">
+      () => html`<div class="stack">
         ${leadGrid(v.tGrid)}
         ${chipRow(v.uChip)}
         ${notes(v.tNotes)}
         <p class="note">Een negatieve T-top in aVR is normaal en telt niet mee. Markeer alleen wat afwijkt van het verwachte patroon.</p>
-      </div>`}
+      </div>`,
 
-      ${v.is8 && html`<div class="stack">
+      () => html`<div class="stack">
         ${fields(v.qtFields)}
-        ${v.qtNoHr && html`<div class="sugg"><span>Voor de correctie is een hartfrequentie nodig.</span><button type="button" class="btn small" onClick=${v.goRate}>Naar Frequentie</button></div>`}
+        ${v.qtNoHr && html`<div class="sugg"><span>Voor de correctie is een gemeten hartfrequentie nodig.</span><button type="button" class="btn small" onClick=${v.goRate}>Naar Frequentie</button></div>`}
         ${v.qtHasHr && html`<div class="group">
           <div class="glabel">Correctie bij ${v.hrTxt} — tik om te kiezen welke in het verslag komt</div>
           <div class="cards">${v.qtcCards.map((k) => html`<button type="button" class=${k.cls} aria-pressed=${k.pressed} onClick=${k.pick}><span class="cn">${k.name}</span><span class="cf">${k.f}</span><span class="cv">${k.val}</span><span class="ce">${k.ev}</span></button>`)}</div>
         </div>`}
         ${notes(v.qtNotes)}
         <p class="note">Afkapwaarden: verlengd > 450 ms (man) / > 460 ms (vrouw); sterk verlengd ≥ 500 ms; kort ${'<'} 350 ms. Bazett overcorrigeert bij hoge en ondercorrigeert bij lage frequenties; Fridericia is betrouwbaarder buiten 60–90/min.</p>
-      </div>`}
+      </div>`,
 
-      ${v.is9 && html`<div class="stack">
+      () => html`<div class="stack">
         <div>${sumRows}</div>
         <div class="group">
           <div class="glabel">Differentiaaldiagnose</div>
@@ -796,14 +922,61 @@ class App extends Component {
           <button type="button" class="btn" onClick=${v.copy}>${v.copyLabel}</button>
           <button type="button" class="btn ghost" onClick=${v.reset}>Nieuw ECG</button>
         </div>
-      </div>`}
+      </div>`
+    ];
 
+    const stepsPanel = html`
+      <div class="prog" aria-hidden="true">${v.nav.map((n) => html`<span class=${n.seg}></span>`)}</div>
+      <div class="phead">
+        <div class="phead-row"><div class="kicker">Stap ${v.stepNum} / 10</div>${tools(step)}</div>
+        <h2>${v.stepTitle}</h2>
+        <p class="lead-in">${v.stepLead}</p>
+      </div>
+      ${bodies[step]()}
       <div class="foot">
         <button type="button" class="btn ghost" onClick=${v.prev} disabled=${v.isFirst}>Vorige</button>
         <button type="button" class="btn" onClick=${v.next}>${v.nextLabel}</button>
       </div>
-    </main>
+      <div class="mbar">
+        <button type="button" class="btn ghost" onClick=${v.prev} disabled=${v.isFirst} aria-label="Vorige stap">‹</button>
+        <button type="button" class="mstep" onClick=${v.openSheet} aria-haspopup="dialog"><span class="mono">${step + 1}/10</span> ${v.shortTitle}<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg></button>
+        <button type="button" class="btn" onClick=${v.next}>${v.nextShort} ›</button>
+      </div>`;
 
+    const overviewPanel = html`
+      <div class="ovhead">
+        <div class="kicker">Overzicht</div>
+        <h2>Alle stappen</h2>
+        <p class="lead-in">Vul in willekeurige volgorde in. Enter springt naar het volgende veld; de bevindingen rechts lopen mee.</p>
+      </div>
+      ${v.steps.map(([title, lead], i) => html`<section class="osec" id=${'sec-' + i}>
+        <div class="osec-h"><span class="onum">${i + 1}</span><h3>${title}</h3>${tools(i)}</div>
+        ${i < 9 && html`<p class="lead-in">${lead}</p>`}
+        ${bodies[i]()}
+      </section>`)}`;
+
+    return html`
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg width="36" height="20" viewBox="0 0 36 20" aria-hidden="true"><path d="M1 12h8l2-5 3 11 4-17 3 11h14" fill="none" stroke="#b3261e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"></path></svg>
+      <span>ECG Stapsgewijs</span>
+    </div>
+    <div class="topmeta">${v.setupLine}</div>
+    <div class="tabs modeseg" role="group" aria-label="Weergave">
+      <button type="button" class=${v.overview ? 'tab' : 'tab on'} aria-pressed=${!v.overview} onClick=${v.setSteps}>Stappen</button>
+      <button type="button" class=${v.overview ? 'tab on' : 'tab'} aria-pressed=${v.overview} onClick=${v.setOverview}>Overzicht</button>
+    </div>
+    <button type="button" class="btn ghost small calhdr" onClick=${v.openCal}>Meetlat</button>
+    <button type="button" class="btn ghost small keysbtn" onClick=${v.toggleHelp} aria-label="Sneltoetsen">?</button>
+    <button type="button" class="btn ghost small" onClick=${v.reset}>Nieuw ECG</button>
+  </header>
+
+  <div class="shell">
+    <nav class="steps" aria-label="Stappen">${v.nav.map(navBtn)}</nav>
+    <main class=${v.overview ? 'panel ov' : 'panel'} ref=${v.panelRef} onTouchStart=${v.swipeStart} onTouchEnd=${v.swipeEnd}>
+      ${v.overview ? overviewPanel : stepsPanel}
+    </main>
     <aside class="summary" aria-label="Bevindingen">
       <div class="sumh"><h3>Bevindingen</h3><button type="button" class="btn ghost small" onClick=${v.copy}>${v.copyLabel}</button></div>
       ${sumRows}
@@ -812,7 +985,254 @@ class App extends Component {
     </aside>
   </div>
   <footer class="sitefoot">ECG Stapsgewijs · werkt volledig in de browser; er worden geen gegevens opgeslagen of verstuurd.</footer>
+
+  ${v.sheetOpen && html`<div class="sheet-bg" onClick=${v.closeSheet}></div>
+    <div class="sheet" role="dialog" aria-label="Stappen">
+      <div class="sheet-h"><b>Stappen</b><button type="button" class="btn ghost small" onClick=${v.closeSheet}>Sluiten</button></div>
+      ${v.nav.map(navBtn)}
+    </div>`}
+
+  ${v.helpOpen && html`<div class="modal-bg" onClick=${v.toggleHelp}></div>
+    <div class="modal" role="dialog" aria-label="Sneltoetsen">
+      <div class="sumh"><h3>Sneltoetsen</h3><button type="button" class="btn ghost small" onClick=${v.toggleHelp}>Sluiten</button></div>
+      <div class="keys">
+        <span><kbd>←</kbd> <kbd>→</kbd></span><span>Vorige / volgende stap</span>
+        <span><kbd>1</kbd> … <kbd>9</kbd> <kbd>0</kbd></span><span>Ga naar stap 1–10</span>
+        <span><kbd>Enter</kbd></span><span>Naar het eerste invoerveld; in een veld: volgend veld</span>
+        <span><kbd>Esc</kbd></span><span>Veld verlaten (daarna werken de sneltoetsen weer) / venster sluiten</span>
+        <span><kbd>N</kbd></span><span>Huidige stap: alles normaal</span>
+        <span><kbd>O</kbd></span><span>Wissel tussen stappen en overzicht</span>
+        <span><kbd>M</kbd></span><span>Meetlat openen</span>
+        <span><kbd>K</kbd></span><span>Verslag kopiëren</span>
+        <span><kbd>?</kbd></span><span>Dit overzicht</span>
+      </div>
+    </div>`}
+
+  <${Calipers} open=${v.calOpen} onClose=${v.closeCal} speed=${v.speed} gain=${v.gain} onUse=${v.useMeasure} />
 </div>`;
+  }
+}
+
+/* ---------- scrollende meetlat voor invoer op touchscreens ---------- */
+const TW = 12;
+class Ruler extends Component {
+  constructor(...a) {
+    super(...a);
+    this.el = null; this.user = false; this.half = 0;
+    this.ref = (el) => { this.el = el; };
+    this.onScroll = () => {
+      if (!this.el || !this.user) return;
+      const p = this.props;
+      const n = Math.round((p.max - p.min) / p.step);
+      const i = Math.max(0, Math.min(n, Math.round(this.el.scrollLeft / TW)));
+      const val = Math.round((p.min + i * p.step) * 100) / 100;
+      if (val !== p.value) p.onSet(val);
+      clearTimeout(this.t); this.t = setTimeout(() => { this.user = false; }, 220);
+    };
+    this.grab = () => { this.user = true; clearTimeout(this.t); this.t = setTimeout(() => { this.user = false; }, 1500); };
+    this.onResize = () => this.measure();
+  }
+  measure() {
+    if (!this.el) return;
+    const h = Math.max(0, (this.el.clientWidth - TW) / 2);
+    if (h !== this.half) { this.half = h; this.forceUpdate(); } else this.sync(true);
+  }
+  componentDidMount() { this.measure(); window.addEventListener('resize', this.onResize); }
+  componentWillUnmount() { window.removeEventListener('resize', this.onResize); clearTimeout(this.t); }
+  componentDidUpdate() { this.sync(!this.synced); this.synced = true; }
+  sync(instant) {
+    if (!this.el || this.user || !this.half) return;
+    const p = this.props;
+    const v = isNaN(p.value) ? p.start : p.value;
+    const i = Math.round((Math.max(p.min, Math.min(p.max, v)) - p.min) / p.step);
+    const x = i * TW;
+    if (Math.abs(this.el.scrollLeft - x) > 1) this.el.scrollTo({ left: x, behavior: instant ? 'auto' : 'smooth' });
+  }
+  render(p) {
+    const n = Math.round((p.max - p.min) / p.step);
+    const every = p.major || 5;
+    const ticks = [];
+    for (let i = 0; i <= n; i++) {
+      const val = Math.round((p.min + i * p.step) * 100) / 100;
+      const major = i % every === 0;
+      ticks.push(html`<span class=${major ? 'tk major' : 'tk'}>${major && html`<i>${String(val).replace('.', ',').replace('-', '−')}</i>`}</span>`);
+    }
+    return html`<div class="ruler-wrap" aria-hidden="true"><div class="ruler" ref=${this.ref} tabindex="-1" onScroll=${this.onScroll} onPointerDown=${this.grab} onTouchStart=${this.grab} onWheel=${this.grab}><div class="rtrack" style=${'padding: 0 ' + this.half + 'px'}>${ticks}</div></div></div>`;
+  }
+}
+
+/* ---------- meetlat op een ECG-afbeelding ---------- */
+const TIME_TARGETS = [['pDur', 'P-duur'], ['pr', 'PQ-tijd'], ['qrs', 'QRS-duur'], ['qt', 'QT-tijd'], ['rr', 'RR → frequentie']];
+const AMP_TARGETS = [['pAmp', 'P-amplitude'], ['stMax', 'ST-deviatie'], ['sv1', 'S V1'], ['rv5', 'R V5/V6'], ['ravl', 'R aVL'], ['sv3', 'S V3'], ['ampI', 'Netto QRS I'], ['ampF', 'Netto QRS aVF']];
+class Calipers extends Component {
+  constructor(...a) {
+    super(...a);
+    this.state = { src: null, w: 0, h: 0, fit: 1, zoom: 1, mode: 'calX', calN: 5, pts: { calX: [], calY: [], meas: [] }, used: '', over: false };
+    this.stageRef = (el) => { this.stage = el; };
+    this.svgRef = (el) => { this.svg = el; };
+    this.onPaste = (e) => {
+      if (!this.props.open) return;
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for (let k = 0; k < items.length; k++) { if (items[k].type.indexOf('image') === 0) { this.load(items[k].getAsFile()); e.preventDefault(); return; } }
+    };
+    this.onResize = () => this.fit();
+    this.bgDown = (e) => { if (e.target.closest && e.target.closest('.hdl')) return; this.down = { x: e.clientX, y: e.clientY }; };
+    this.bgUp = (e) => {
+      const d = this.down; this.down = null;
+      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+      const p = this.toImg(e);
+      const m = this.state.mode;
+      const cur = this.state.pts[m];
+      const nxt = cur.length >= 2 ? [p] : cur.concat([p]);
+      const patch = { pts: Object.assign({}, this.state.pts, { [m]: nxt }), used: '' };
+      if (m === 'calX' && nxt.length === 2 && !this.state.pts.meas.length) patch.mode = 'meas';
+      this.setState(patch);
+    };
+    this.hdlMove = (e) => {
+      if (!this.drag) return;
+      const p = this.toImg(e);
+      const { m, idx } = this.drag;
+      const arr = this.state.pts[m].slice(); arr[idx] = p;
+      this.setState({ pts: Object.assign({}, this.state.pts, { [m]: arr }), used: '' });
+    };
+    this.hdlUp = () => { this.drag = null; };
+    this.onFile = (e) => { const f = e.target.files && e.target.files[0]; if (f) this.load(f); e.target.value = ''; };
+    this.onDrop = (e) => { e.preventDefault(); this.setState({ over: false }); const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this.load(f); };
+    this.onDragOver = (e) => { e.preventDefault(); if (!this.state.over) this.setState({ over: true }); };
+    this.onDragLeave = () => this.setState({ over: false });
+    this.onWheel = (e) => { if (!e.ctrlKey) return; e.preventDefault(); this.setZoom(this.state.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); };
+  }
+  componentDidMount() { window.addEventListener('paste', this.onPaste); window.addEventListener('resize', this.onResize); }
+  componentWillUnmount() { window.removeEventListener('paste', this.onPaste); window.removeEventListener('resize', this.onResize); }
+  componentDidUpdate(pp) { if (this.props.open && !pp.open) setTimeout(() => this.fit(), 0); }
+  load(file) {
+    if (!file || !file.type || file.type.indexOf('image') !== 0) return;
+    const src = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      if (this.state.src) URL.revokeObjectURL(this.state.src);
+      this.setState({ src, w: img.naturalWidth, h: img.naturalHeight, zoom: 1, mode: 'calX', pts: { calX: [], calY: [], meas: [] }, used: '' }, () => this.fit());
+    };
+    img.src = src;
+  }
+  fit() {
+    if (!this.stage || !this.state.w) return;
+    const f = Math.max(0.05, (this.stage.clientWidth - 24) / this.state.w);
+    if (Math.abs(f - this.state.fit) > 0.001) this.setState({ fit: f });
+  }
+  setZoom(z) { this.setState({ zoom: Math.max(1, Math.min(6, z)) }); }
+  toImg(e) {
+    const r = this.svg.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * this.state.w, y: (e.clientY - r.top) / r.height * this.state.h };
+  }
+  hdlDown(e, m, idx) {
+    e.stopPropagation(); e.preventDefault();
+    this.drag = { m, idx };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  render(p, s) {
+    const k = s.fit * s.zoom;
+    const fmt = (x, d) => String(Math.round(x * Math.pow(10, d)) / Math.pow(10, d)).replace('.', ',');
+    const cx = s.pts.calX.length === 2 ? Math.abs(s.pts.calX[1].x - s.pts.calX[0].x) / (s.calN * 5) : null;
+    const cyOwn = s.pts.calY.length === 2 ? Math.abs(s.pts.calY[1].y - s.pts.calY[0].y) / p.gain : null;
+    const cy = cyOwn || cx;
+    const m = s.pts.meas;
+    const ms = (cx && m.length === 2) ? Math.abs(m[1].x - m[0].x) / cx / p.speed * 1000 : null;
+    const mm = (cy && m.length === 2) ? (m[0].y - m[1].y) / cy : null;
+    const r = 9 / k, fs = 13 / k, sw = 1.6;
+    const COL = { calX: '#1d5fa6', calY: '#6b4fa0', meas: '#b3261e' };
+
+    const handles = (mode) => s.pts[mode].map((pt, i) => html`<circle class="hdl" cx=${pt.x} cy=${pt.y} r=${r} fill="#fff" stroke=${COL[mode]} stroke-width="2" vector-effect="non-scaling-stroke" onPointerDown=${(e) => this.hdlDown(e, mode, i)} onPointerMove=${this.hdlMove} onPointerUp=${this.hdlUp} onPointerCancel=${this.hdlUp}></circle>`);
+    const label = (x, y, txt, col) => html`<text x=${x} y=${y} font-size=${fs} font-weight="600" fill=${col} stroke="#fff" stroke-width=${4 / k} paint-order="stroke" text-anchor="middle">${txt}</text>`;
+    const hPair = (mode, txt) => {
+      const a = s.pts[mode];
+      if (!a.length) return null;
+      const op = s.mode === mode ? 1 : 0.35;
+      return html`<g opacity=${op}>
+        ${a.map((pt) => html`<line x1=${pt.x} y1="0" x2=${pt.x} y2=${s.h} stroke=${COL[mode]} stroke-width=${sw} vector-effect="non-scaling-stroke" stroke-dasharray=${mode === 'calX' ? '6 4' : null}></line>`)}
+        ${a.length === 2 && html`<line x1=${a[0].x} y1=${a[0].y} x2=${a[1].x} y2=${a[0].y} stroke=${COL[mode]} stroke-width=${sw} vector-effect="non-scaling-stroke"></line>`}
+        ${a.length === 2 && txt && label((a[0].x + a[1].x) / 2, a[0].y - 10 / k, txt, COL[mode])}
+        ${s.mode === mode && handles(mode)}
+      </g>`;
+    };
+    const vPair = (mode, txt) => {
+      const a = s.pts[mode];
+      if (!a.length) return null;
+      const op = s.mode === mode ? 1 : 0.35;
+      const half = 40 / k;
+      return html`<g opacity=${op}>
+        ${a.map((pt) => html`<line x1=${pt.x - half} y1=${pt.y} x2=${pt.x + half} y2=${pt.y} stroke=${COL[mode]} stroke-width=${sw} vector-effect="non-scaling-stroke"></line>`)}
+        ${a.length === 2 && html`<line x1=${a[0].x} y1=${a[0].y} x2=${a[0].x} y2=${a[1].y} stroke=${COL[mode]} stroke-width=${sw} vector-effect="non-scaling-stroke"></line>`}
+        ${a.length === 2 && txt && label(a[0].x + half + 30 / k, (a[0].y + a[1].y) / 2, txt, COL[mode])}
+        ${s.mode === mode && handles(mode)}
+      </g>`;
+    };
+    const measLabel = ms != null ? fmt(ms, 0) + ' ms' + (mm != null && Math.abs(mm) >= 0.25 ? ' · ' + fmt(mm, 1) + ' mm' : '') : '';
+    const use = (key, val, name, unit) => () => { p.onUse(key, val); this.setState({ used: name + ' ingevuld: ' + (key === 'rr' ? Math.round(60000 / val) + '/min' : fmt(val, unit === 'ms' ? 0 : 1) + ' ' + unit) }); };
+    const modeBtn = (mode, label) => html`<button type="button" class=${s.mode === mode ? 'tab on' : 'tab'} aria-pressed=${s.mode === mode} onClick=${() => this.setState({ mode })}>${label}</button>`;
+    const help = {
+      calX: 'Klik op twee verticale rasterlijnen die ' + s.calN + ' grote hokjes (' + s.calN * 5 + ' mm) uit elkaar liggen. Daarmee is ook de verticale schaal bekend.',
+      calY: 'Optioneel: klik boven- en onderkant van de ijkpuls (' + p.gain + ' mm bij ' + p.gain + ' mm/mV). Alleen nodig als de afbeelding niet in verhouding is geschaald.',
+      meas: 'Klik begin en einde van het interval. Voor amplitudes: eerst op de basislijn, dan op de top. Versleep de punten om bij te stellen.'
+    }[s.mode];
+
+    return html`<div class="cal" hidden=${!p.open} role="dialog" aria-label="Meetlat">
+      <div class="cal-top">
+        <h2>Meetlat</h2>
+        ${s.src && html`<div class="zoomrow">
+          <button type="button" class="btn ghost small" onClick=${() => this.setZoom(s.zoom / 1.25)} aria-label="Uitzoomen">−</button>
+          <span class="mono zoomv">${Math.round(s.zoom * 100)}%</span>
+          <button type="button" class="btn ghost small" onClick=${() => this.setZoom(s.zoom * 1.25)} aria-label="Inzoomen">+</button>
+          <button type="button" class="btn ghost small" onClick=${() => this.setZoom(1)}>Passend</button>
+        </div>`}
+        <button type="button" class="btn small" onClick=${p.onClose}>Sluiten</button>
+      </div>
+      <div class="cal-body">
+        <div class="cal-stage" ref=${this.stageRef} onDragOver=${this.onDragOver} onDragLeave=${this.onDragLeave} onDrop=${this.onDrop} onWheel=${this.onWheel}>
+          ${!s.src ? html`<div class=${s.over ? 'drop over' : 'drop'}>
+              <svg width="44" height="28" viewBox="0 0 36 20" aria-hidden="true"><path d="M1 12h8l2-5 3 11 4-17 3 11h14" fill="none" stroke="#b3261e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path></svg>
+              <b>Laad een ECG-afbeelding</b>
+              <span class="note">Sleep een afbeelding hierheen, plak met Ctrl+V of kies een bestand. De afbeelding blijft op dit apparaat en wordt nergens naartoe gestuurd.</span>
+              <label class="btn filebtn">Bestand kiezen<input type="file" accept="image/*" onChange=${this.onFile} /></label>
+            </div>`
+          : html`<div class="cal-canvas" style=${'width:' + Math.round(s.w * k) + 'px;height:' + Math.round(s.h * k) + 'px'}>
+              <img src=${s.src} alt="ECG-afbeelding" draggable="false" />
+              <svg ref=${this.svgRef} viewBox=${'0 0 ' + s.w + ' ' + s.h} preserveAspectRatio="none" onPointerDown=${this.bgDown} onPointerUp=${this.bgUp}>
+                ${hPair('calX', cx ? s.calN + ' grote hokjes' : '')}
+                ${vPair('calY', cyOwn ? p.gain + ' mm' : '')}
+                ${hPair('meas', measLabel)}
+              </svg>
+            </div>`}
+        </div>
+        <div class="cal-side">
+          <div class="group">
+            <div class="tabs" role="group" aria-label="Meetstap">${modeBtn('calX', '1. Kalibreren')}${modeBtn('calY', 'Verticaal')}${modeBtn('meas', '2. Meten')}</div>
+            <p class="note">${help}</p>
+          </div>
+          ${s.mode === 'calX' && html`<div class="group">
+            <div class="glabel">Afstand tussen de twee punten</div>
+            <div class="ctrl small">
+              <button type="button" class="sbtn" onClick=${() => this.setState({ calN: Math.max(1, s.calN - 1) })} aria-label="Minder hokjes">−</button>
+              <div class="inwrap"><span class="num-in">${s.calN}</span><span class="unit">grote hokjes</span></div>
+              <button type="button" class="sbtn" onClick=${() => this.setState({ calN: Math.min(50, s.calN + 1) })} aria-label="Meer hokjes">+</button>
+            </div>
+            <p class=${cx ? 'ev ok' : 'ev'}>${cx ? 'Gekalibreerd: ' + fmt(cx, 2) + ' px per mm · ' + p.speed + ' mm/s' : 'Nog niet gekalibreerd'}</p>
+          </div>`}
+          ${s.mode === 'calY' && html`<p class=${cyOwn ? 'ev ok' : 'ev'}>${cyOwn ? 'Verticaal: ' + fmt(cyOwn, 2) + ' px per mm' : 'Niet ingesteld — de horizontale schaal wordt gebruikt.'}</p>`}
+          ${s.mode === 'meas' && html`<div class="stack" style="gap: 16px">
+            ${!cx && html`<div class="notes"><div class="n">Kalibreer eerst (stap 1).</div></div>`}
+            <div class="meas">
+              <div><div class="cn">Tijd</div><div class="big" style="font-size: 30px">${ms != null ? fmt(ms, 0) : '—'}<span class="bu">ms</span></div>${ms != null && html`<div class="cc">RR → ${Math.round(60000 / ms)}/min</div>`}</div>
+              <div><div class="cn">Amplitude</div><div class="big" style="font-size: 30px">${mm != null ? fmt(mm, 1) : '—'}<span class="bu">mm</span></div>${mm != null && html`<div class="cc">${fmt(mm / p.gain, 2)} mV</div>`}</div>
+            </div>
+            ${ms != null && html`<div class="group"><div class="glabel">Tijd invullen als</div><div class="chips">${TIME_TARGETS.map(([key, name]) => html`<button type="button" class="chip sm" onClick=${use(key, ms, name, 'ms')}>${name}</button>`)}</div></div>`}
+            ${mm != null && html`<div class="group"><div class="glabel">Amplitude invullen als</div><div class="chips">${AMP_TARGETS.map(([key, name]) => html`<button type="button" class="chip sm" onClick=${use(key, key === 'ampI' || key === 'ampF' ? mm : Math.abs(mm), name, 'mm')}>${name}</button>`)}</div></div>`}
+            ${s.used && html`<p class="ev ok">${s.used}</p>`}
+          </div>`}
+          ${s.src && html`<label class="btn ghost small filebtn">Andere afbeelding<input type="file" accept="image/*" onChange=${this.onFile} /></label>`}
+        </div>
+      </div>
+    </div>`;
   }
 }
 
