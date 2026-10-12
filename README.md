@@ -19,8 +19,9 @@ Webapp om een ECG systematisch te beoordelen, bedoeld voor de klinische praktijk
 
 ## Bediening
 
+- **Uitleg** (standaard aan, knop rechtsboven of sneltoets `U`): per stap een korte aanpak ("Zo pak je het aan"), bij elke gekozen optie de kenmerken waaraan je haar op het ECG herkent (bijvoorbeeld wat een eerstegraads AV-blok onderscheidt van Mobitz I en II), een uitklapbare lijst met alle opties, en bij invoervelden waar en hoe je meet. Wie de uitleg niet nodig heeft, zet haar uit; de keuze wordt in de browser onthouden.
 - **Alles normaal** per stap: één tik markeert de stap als normaal en gaat door (sneltoets `N`).
-- **Desktop:** sneltoetsen (`←` `→`, `1`–`0`, `Enter`, `N`, `O`, `M`, `K`, `?`), een **overzichtsmodus** met alle stappen op één pagina, en een **meetlat** om intervallen en amplitudes op een ECG-afbeelding te meten (kalibreren op grote hokjes, meetwaarde direct invullen). De afbeelding blijft op het apparaat.
+- **Desktop:** sneltoetsen (`←` `→`, `1`–`0`, `Enter`, `N`, `O`, `M`, `U`, `K`, `?`), een **overzichtsmodus** met alle stappen op één pagina, en een **meetlat** om intervallen en amplitudes op een ECG-afbeelding te meten (kalibreren op grote hokjes, meetwaarde direct invullen). De afbeelding blijft op het apparaat.
 - **Telefoon/tablet:** vegen tussen stappen, onderbalk met stappenlijst, scrollende meetlat onder elk invoerveld, ingedrukt houden van − / + voor snel verhogen, en een tikteller voor de strook van 10 s.
 
 ## Technisch

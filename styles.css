@@ -287,3 +287,24 @@ kbd{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;border:1px
   .summary{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
 }
 .calbtn,.calhdr,.keysbtn{align-items:center;justify-content:center}
+
+/* uitleg */
+.guide{background:#f2f6fc;border:1px solid #d3e0f0;border-radius:12px;padding:12px 14px;font-size:14px;color:#22344b}
+.guide-h{font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#164a82;margin-bottom:6px}
+.guide ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;text-wrap:pretty}
+.xp{display:flex;flex-direction:column;gap:6px}
+.xdef{font-size:13px;line-height:1.5;padding:8px 12px;border-left:3px solid #1d5fa6;background:#f7f9fc;border-radius:0 8px 8px 0;color:#22344b;text-wrap:pretty}
+.xmore summary{cursor:pointer;font-size:13px;font-weight:500;color:#1d5fa6;min-height:32px;display:flex;align-items:center;gap:6px;list-style:none}
+.xmore summary::-webkit-details-marker{display:none}
+.xmore summary::before{content:"▸";font-size:11px;transition:transform .15s}
+.xmore[open] summary::before{transform:rotate(90deg)}
+.xmore summary:focus-visible{outline:3px solid #1d5fa6;outline-offset:2px;border-radius:4px}
+.xmore dl{margin:4px 0 0;display:flex;flex-direction:column;gap:10px;padding:10px 12px;border:1px solid #e3dcd8;border-radius:10px;background:#fff}
+.xi dt{font-weight:600;font-size:13px}
+.xi dd{margin:2px 0 0;font-size:13px;color:#3b4552;text-wrap:pretty}
+.xi.on dt{color:#164a82}
+.xi.on dt::after{content:" — gekozen";font-weight:400;color:#5a6573}
+.fhow{margin:-4px 0 0;font-size:12.5px;color:#5a6573;text-wrap:pretty}
+.xbtn{display:inline-flex;align-items:center}
+.xbtn.on{background:#f2f6fc;border-color:#1d5fa6;color:#164a82}
+@container app (max-width: 479px){ .topmeta{display:none} .top{gap:8px} .top .btn.small{padding:0 10px} }

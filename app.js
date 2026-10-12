@@ -1,5 +1,150 @@
 import { html, render, Component } from './vendor/htm-preact.mjs';
 
+/* ---------- uitleg voor wie minder ervaring heeft met ECG's ---------- */
+/* Per keuzegroep: [titel, waaraan herken je het]. */
+const XP = {
+  speed: {
+    25: ['25 mm/s', 'Standaard. 1 klein hokje = 40 ms, 1 groot hokje (5 kleine) = 200 ms; 5 grote hokjes = 1 seconde.'],
+    50: ['50 mm/s', 'Het papier loopt twee keer zo snel: 1 klein hokje = 20 ms, 1 groot hokje = 100 ms. Complexen lijken breder en de frequentie lijkt lager dan hij is.']
+  },
+  gain: {
+    5: ['5 mm/mV', 'De ijkpuls is 5 mm (1 groot hokje) hoog. Alle uitslagen zijn half zo groot als standaard; wordt gekozen bij hoge spanningen, zodat complexen elkaar niet overlappen.'],
+    10: ['10 mm/mV', 'Standaard. De ijkpuls is 10 mm (2 grote hokjes) hoog, dus 1 klein hokje in de hoogte = 0,1 mV.'],
+    20: ['20 mm/mV', 'De ijkpuls is 20 mm (4 grote hokjes) hoog. Alle uitslagen zijn twee keer zo groot; wordt gekozen bij lage spanningen.']
+  },
+  reg: {
+    reg: ['Regulair', 'Alle RR-afstanden (van R-top tot R-top) zijn gelijk of nagenoeg gelijk.'],
+    regirr: ['Regulair irregulair', 'Onregelmatig, maar met een terugkerend patroon. Bijvoorbeeld: na elke normale slag een extrasystole (bigeminie), groepjes slagen gevolgd door een pauze (Wenckebach), of RR-afstanden die geleidelijk met de ademhaling korter en langer worden (sinusaritmie).'],
+    irrirr: ['Irregulair irregulair', 'Elke RR-afstand is anders en er is geen enkel patroon te ontdekken. Typisch voor atriumfibrilleren; ook bij atriumflutter met wisselende geleiding of multifocale atriale tachycardie.']
+  },
+  pw: {
+    yes: ['P-toppen zichtbaar', 'Kleine, afgeronde, gelijkvormige golfjes vóór het QRS-complex, het best te zien in II en V1.'],
+    no: ['Geen P-toppen', 'Vóór het QRS is geen P-top te herkennen; de basislijn is vlak. De P-top kan ook verstopt zitten in het QRS of de T-top, of er net achter liggen (bij junctioneel of ventriculair ritme).'],
+    flutter: ['Fluttergolven', 'Regelmatige zaagtandgolven (F-golven) zonder vlakke basislijn ertussen, met een frequentie van ongeveer 300/min (1 golf per groot hokje bij 25 mm/s). Het best te zien in II, III, aVF en V1. Vaak 2:1-geleiding, met een ventrikelfrequentie rond 150/min.'],
+    fib: ['Fibrillatiegolven', 'Een onrustige, onregelmatig golvende basislijn zonder herkenbare P-toppen (f-golven, fijn- of grofgolvig), meestal het duidelijkst in V1. Soms is de basislijn vrijwel vlak.']
+  },
+  conduct: {
+    yes: ['Ja, 1:1', 'Elke P-top wordt gevolgd door een QRS-complex en elk QRS heeft een eigen P-top ervoor, steeds met dezelfde afstand (PQ-tijd).'],
+    no: ['Nee', 'Er zijn P-toppen zonder QRS erachter (niet-geleide P-toppen), of QRS-complexen zonder P-top ervoor. Denk aan een AV-blok, AV-dissociatie of extrasystolen.']
+  },
+  pup: {
+    yes: ['Ja', 'De P-top is positief in I en II en negatief in aVR. De prikkel komt dan uit de sinusknoop (rechtsboven in de atria) en loopt naar linksonder.'],
+    no: ['Nee', 'De P-top heeft een afwijkende richting, bijvoorbeeld negatief in II, III en aVF. De prikkel ontstaat dan elders in de atria (ectopisch) of rond de AV-knoop. Is de P-top ook negatief in I, controleer dan of de armelektroden verwisseld zijn.']
+  },
+  rhythm: {
+    sinus: ['Sinusritme', 'Regulair, vóór elk QRS een P-top, na elke P-top een QRS, P-top positief in II en negatief in aVR. Frequentie 60–100/min; daaronder sinusbradycardie, daarboven sinustachycardie.'],
+    sinusarr: ['Sinusaritmie', 'Alle kenmerken van sinusritme, maar de afstand tussen de slagen wisselt geleidelijk: sneller bij inademen, trager bij uitademen. Normaal, vooral bij jonge mensen.'],
+    af: ['Atriumfibrilleren', 'Irregulair irregulair, geen P-toppen, en een onrustige (fibrillerende) of vlakke basislijn.'],
+    flutter: ['Atriumflutter', 'Zaagtandvormige fluttergolven van ongeveer 300/min. Meestal regulair met vaste geleiding (2:1 geeft ongeveer 150/min, 4:1 ongeveer 75/min); bij wisselende geleiding irregulair.'],
+    ectopic: ['Ectopisch atriaal ritme', 'Wel P-toppen vóór elk QRS, maar met een afwijkende vorm of richting (bijvoorbeeld negatief in II, III en aVF), omdat de prikkel niet uit de sinusknoop komt.'],
+    junct: ['Junctioneel ritme', 'Regulair, smal QRS, geen P-toppen of omgekeerde P-toppen (negatief in II) vlak voor, in of vlak na het QRS. Escapefrequentie meestal 40–60/min.'],
+    ventr: ['Ventriculair ritme', 'Breed, afwijkend gevormd QRS (≥ 120 ms) zonder bijbehorende P-toppen. Idioventriculair escaperitme 20–40/min, versneld idioventriculair ritme ongeveer 40–100/min, ventrikeltachycardie > 100/min.'],
+    paced: ['Pacemakerritme', 'Smalle, verticale streepjes (pacemakerspikes) direct vóór de P-top en/of het QRS. Ventriculaire pacing geeft een breed QRS dat lijkt op een LBTB.'],
+    other: ['Ander ritme', 'Past niet in de categorieën hierboven, bijvoorbeeld een supraventriculaire tachycardie. Beschrijf het in de aantekeningen.']
+  },
+  rateM: {
+    direct: ['Direct', 'Neem de frequentie over van de uitdraai of de monitor. Snel, maar controleer de waarde: de automatische meting telt soms hoge T-toppen of artefacten mee.'],
+    large: ['Grote hokjes', 'Tel het aantal grote hokjes tussen twee opeenvolgende R-toppen; de app rekent de frequentie uit. Alleen betrouwbaar bij een regulair ritme.'],
+    small: ['Kleine hokjes', 'Tel het aantal kleine hokjes tussen twee opeenvolgende R-toppen. Nauwkeuriger dan grote hokjes, vooral bij een hoge frequentie, waar een half hokje verschil al veel uitmaakt.'],
+    count: ['Strook 10 s', 'Tel alle QRS-complexen op de ritmestrook (de lange onderste regel duurt 10 seconden) en vermenigvuldig met 6. De beste methode bij een irregulair ritme, zoals atriumfibrilleren.']
+  },
+  axM: {
+    quad: ['Kwadrant', 'Kijk alleen of het QRS netto positief of negatief is in afleiding I en aVF. Beide positief: normale as. Is I positief en aVF negatief, dan beslist afleiding II: positief is nog normaal (0° tot −30°), negatief is linkerasdeviatie.'],
+    iso: ['Iso-elektrische afleiding', 'Zoek de extremiteitsafleiding waarin het QRS het kleinst is, of even ver boven als onder de basislijn uitslaat. De as staat loodrecht op die afleiding; van de twee mogelijke richtingen kies je de richting waarin een afleiding met een positief QRS ligt.'],
+    amp: ['Netto amplitude', 'Meet in afleiding I en aVF de netto uitslag in mm (hoogte R min diepte Q en S). De app berekent daaruit de precieze hoek. Het nauwkeurigst, maar het meeste werk.'],
+    man: ['Direct', 'Vul de as in die op de uitdraai staat, of tik op het wiel. Handig om een automatische waarde te controleren.']
+  },
+  pol: {
+    pos: ['Positief', 'Het QRS slaat vooral naar boven uit: de R-top is hoger dan Q en S samen diep zijn.'],
+    neg: ['Negatief', 'Het QRS slaat vooral naar beneden uit: Q en S samen zijn dieper dan de R-top hoog is.'],
+    iso: ['Iso-elektrisch', 'Ongeveer even ver boven als onder de basislijn (bifasisch), of vrijwel vlak. De as staat dan loodrecht op deze afleiding.']
+  },
+  av: {
+    norm: ['Normaal', 'PQ-tijd 120–200 ms, steeds even lang, en elke P-top wordt gevolgd door een QRS.'],
+    av1: ['Eerstegraads AV-blok', 'De PQ-tijd is langer dan 200 ms (meer dan 1 groot hokje bij 25 mm/s), maar blijft steeds even lang en elke P-top wordt nog gevolgd door een QRS. Er valt dus geen slag uit: de geleiding is alleen vertraagd.'],
+    mob1: ['Tweedegraads, Mobitz I (Wenckebach)', 'De PQ-tijd wordt van slag tot slag langer, tot een P-top niet meer wordt gevolgd door een QRS (een slag valt weg). Na die pauze begint het patroon opnieuw met de kortste PQ-tijd. Geeft groepjes slagen. Meestal in de AV-knoop en vaak onschuldig.'],
+    mob2: ['Tweedegraads, Mobitz II', 'De PQ-tijd blijft gelijk (normaal of verlengd), maar plotseling wordt een P-top niet gevolgd door een QRS, zonder voorafgaande verlenging. Meestal onder de AV-knoop gelegen, met kans op overgang naar een totaal AV-blok.'],
+    two1: ['2:1-blok', 'Om de andere P-top wordt gevolgd door een QRS: twee P-toppen per QRS (de tweede zit soms verstopt in de T-top). Of het om Mobitz I of II gaat is op deze strook niet te zeggen; een breed QRS pleit voor een blok onder de AV-knoop.'],
+    av3: ['Derdegraads (totaal) AV-blok', 'Er is geen enkele relatie tussen P-toppen en QRS-complexen. De P-toppen lopen regelmatig door in hun eigen, hogere frequentie; de QRS-complexen volgen een eigen, trage regelmaat (escaperitme). De PQ-tijd wisselt daardoor steeds. Smal escape-QRS: junctioneel (40–60/min); breed: ventriculair (20–40/min).']
+  },
+  delta: {
+    true: ['Deltagolf', 'Het QRS begint niet met een scherpe uitslag maar loopt langzaam en schuin op (een "glijbaan" direct na de P-top). Daardoor is de PQ-tijd kort (< 120 ms) en het QRS breder. Samen met een korte PQ-tijd: WPW-patroon (een extra geleidingsbaan tussen atria en ventrikels).']
+  },
+  morph: {
+    norm: ['Normaal', 'Smal QRS (< 110 ms). In V1 een kleine r met een diepe S, in V5–V6 een hoge R, vaak met een klein septaal q-tje.'],
+    rbbb: ['RBTB (rechterbundeltakblok)', 'QRS ≥ 120 ms. In V1–V2 een rsR′-patroon ("konijnenoren", M-vorm); in I en V5–V6 een brede, geslurde S-golf. Een negatieve T-top en lichte ST-depressie in V1–V3 horen hier als secundair gevolg bij.'],
+    lbbb: ['LBTB (linkerbundeltakblok)', 'QRS ≥ 120 ms. In V1 een diep, breed QS- of rS-complex; in I, aVL en V5–V6 een brede, gekerfde of plateauvormige R-top zonder q-tje. ST-segment en T-top wijzen tegengesteld aan het QRS; dat is bij een LBTB normaal.'],
+    irbbb: ['Incompleet RBTB', 'Het beeld van een RBTB (rsR′ in V1), maar met een QRS-duur van 110–119 ms. Vaak een normaalvariant.'],
+    ivcd: ['Aspecifieke IVCD', 'Intraventriculaire geleidingsvertraging: QRS ≥ 110 ms zonder het typische beeld van een RBTB of LBTB.'],
+    paced: ['Ventriculair gepaced', 'Een pacemakerspike direct vóór een breed QRS. Pacing in de rechterventrikel geeft een beeld dat lijkt op een LBTB.']
+  },
+  fasc: {
+    none: ['Geen', 'Geen aanwijzingen voor een hemiblok.'],
+    lafb: ['LAHB (linker anterior hemiblok)', 'Linkerasdeviatie van −45° of meer. Kleine q en hoge R in I en aVL (qR), kleine r en diepe S in II, III en aVF (rS). Het QRS blijft smal, tenzij er ook een bundeltakblok is. Het meest voorkomende hemiblok.'],
+    lpfb: ['LPHB (linker posterior hemiblok)', 'Rechterasdeviatie (> +90°), rS in I en aVL, qR in II, III en aVF. Zeldzaam; mag alleen worden genoemd als andere oorzaken van rechterasdeviatie zijn uitgesloten (rechterventrikelbelasting, lateraal infarct, slank postuur).']
+  },
+  rprog: {
+    norm: ['Normaal', 'Van V1 naar V6 wordt de R-top steeds hoger en de S-golf steeds kleiner. De overgang (R even groot als S) ligt in V3 of V4.'],
+    poor: ['Slechte R-topprogressie', 'De R-top groeit nauwelijks: in V3 is hij nog ≤ 3 mm en de overgang ligt pas voorbij V4.'],
+    early: ['Vroege transitie', 'De R-top is al in V1 of V2 even groot als of groter dan de S-golf. Kan normaal zijn, maar denk ook aan een posterieur infarct, rechterventrikelhypertrofie, RBTB of verkeerd geplaatste elektroden.']
+  },
+  q: {
+    q: ['Q — pathologische Q-golf', 'Een eerste negatieve uitslag van het QRS die ≥ 40 ms breed is (1 klein hokje bij 25 mm/s) of ≥ 25% van de hoogte van de R-top diep. Elke Q-golf in V1–V3 is afwijkend. Telt pas mee in twee of meer aangrenzende afleidingen.'],
+    n: ['— normaal', 'Geen Q-golf, of een klein, smal septaal q-tje in I, aVL, V5 of V6. Een geïsoleerde Q in III of een Q in aVR is normaal.']
+  },
+  st: {
+    up: ['ELEV — ST-elevatie', 'Het J-punt (waar het QRS overgaat in het ST-segment) ligt boven de basislijn, gemeten ten opzichte van het PQ-segment. Een bolle of horizontale vorm is verdacht voor ischemie; een holle vorm sluit een infarct niet uit.'],
+    down: ['DEPR — ST-depressie', 'Het J-punt ligt onder de basislijn. Een horizontale of aflopende depressie van ≥ 0,5 mm in twee aangrenzende afleidingen past bij ischemie; een snel oplopende depressie is vaker aspecifiek (bijvoorbeeld bij tachycardie). Kuipvormig bij digoxinegebruik.'],
+    n: ['— normaal', 'Het ST-segment ligt op de basislijn, of de afwijking blijft onder de afkapwaarden die onderaan deze stap staan.']
+  },
+  tw: {
+    inv: ['NEG — negatief', 'De T-top ligt onder de basislijn in een afleiding waar hij normaal positief is (I, II, V3–V6). Een negatieve T-top in aVR is altijd normaal, in III en V1 vaak.'],
+    flat: ['VLAK — afgevlakt', 'De T-top is nauwelijks te zien: vlak, of lager dan ongeveer een tiende van de R-top in dezelfde afleiding.'],
+    peak: ['SPITS — spits', 'Een hoge, smalle, symmetrische T-top met een smalle basis ("tentvorm"), vaak hoger dan 5 mm in de extremiteitsafleidingen of 10 mm in de V-afleidingen. Een hoge maar brede, plompe T-top kan juist passen bij een vroeg (hyperacuut) infarct.'],
+    n: ['— normaal', 'De T-top wijst dezelfde kant op als het grootste deel van het QRS en is asymmetrisch: langzaam oplopend, sneller dalend.']
+  },
+  uw: {
+    true: ['U-golf', 'Een klein positief golfje na de T-top en vóór de volgende P-top, het best te zien in V2–V3. Een kleine U-golf is normaal (vooral bij een lage frequentie); een opvallende U-golf, even groot als of groter dan de T-top, wijst op hypokaliëmie.']
+  }
+};
+
+/* Per stap: hoe pak je het aan. d bevat papiersnelheid en hokjesduur. */
+const GUIDE = (i, d) => {
+  const per = (ms) => String(Math.round(ms / d.small * 10) / 10).replace('.', ',');
+  const ladder = [1, 2, 3, 4, 5, 6].map((n) => n + ' = ' + Math.round(60000 / (n * d.large))).join(', ');
+  return [
+    ['Kijk op de uitdraai welke papiersnelheid (meestal 25 mm/s) en ijking (meestal 10 mm/mV) zijn gebruikt.',
+      'De ijkpuls is het rechthoekige blokje aan het begin of einde van een regel. Bij 10 mm/mV is die 10 mm (2 grote hokjes) hoog; is hij half zo hoog of twee keer zo hoog, dan is de ijking 5 of 20 mm/mV.',
+      'Afwijkende instellingen veranderen alles wat je meet: bij 50 mm/s lijkt elk interval twee keer zo lang, bij 20 mm/mV lijkt elke uitslag twee keer zo groot.'],
+    ['Begin bij de ritmestrook (meestal afleiding II, de lange regel onderaan). Leg een vel papier langs de strook, zet twee R-toppen af en schuif op: blijven de afstanden gelijk?',
+      'Zoek dan de P-toppen: kleine, afgeronde golfjes vóór elk QRS-complex, het best te zien in II en V1.',
+      'Een sinusritme heeft drie kenmerken: vóór elk QRS een P-top, na elke P-top een QRS, en een P-top die positief is in II en negatief in aVR.'],
+    ['Bij ' + d.speed + ' mm/s is 1 klein hokje ' + d.small + ' ms en 1 groot hokje (5 kleine) ' + d.large + ' ms.',
+      'Regulair ritme: tel de grote hokjes tussen twee R-toppen. Ezelsbrug bij ' + d.speed + ' mm/s (hokjes = frequentie): ' + ladder + '/min.',
+      'Irregulair ritme (bijvoorbeeld atriumfibrilleren): tel alle QRS-complexen op de strook van 10 seconden en vermenigvuldig met 6.',
+      'Normaal is 60–100/min; daaronder heet het bradycardie, daarboven tachycardie.'],
+    ['De hartas is de gemiddelde richting van de elektrische activatie van de ventrikels, gezien van voren (frontaal vlak) en uitgedrukt in graden. Normaal wijst die naar linksonder: −30° tot +90°.',
+      'Je bepaalt hem met de extremiteitsafleidingen (I, II, III, aVR, aVL, aVF). Loopt de activatie naar een afleiding toe, dan is het QRS daar positief; loopt ze ervan af, dan negatief.',
+      'Netto QRS = hoogte van de R-top min de diepte van Q en S samen. Het snelst: kijk alleen naar I en aVF (kwadrantmethode).'],
+    ['De P-top is de activatie van de atria. Meet hem in afleiding II, waar hij normaal het duidelijkst en positief is.',
+      'De PQ-tijd loopt van het begin van de P-top tot het begin van het QRS (ook als dat met een Q-golf begint). Normaal 120–200 ms; bij ' + d.speed + ' mm/s is dat ' + per(120) + '–' + per(200) + ' kleine hokjes.',
+      'Kijk daarna over de hele ritmestrook of de PQ-tijd steeds even lang is en of elke P-top door een QRS wordt gevolgd. Daarmee onderscheid je de soorten AV-blok.'],
+    ['Meet de QRS-duur van de eerste uitslag tot het J-punt (waar het QRS overgaat in het ST-segment), in de afleiding waar het QRS het breedst is. Bij ≥ 120 ms (' + per(120) + ' kleine hokjes bij ' + d.speed + ' mm/s) is het QRS verbreed.',
+      'Bij een verbreed QRS bepaalt de vorm in V1 en V6 het soort blok: "konijnenoren" (rsR′) in V1 passen bij een RBTB; een diepe, brede S in V1 met een brede R in V6 bij een LBTB.',
+      'Beoordeel daarna de R-topprogressie in V1–V6, zoek pathologische Q-golven en meet de spanning voor linkerventrikelhypertrofie (LVH).'],
+    ['Het ST-segment loopt van het einde van het QRS (J-punt) tot het begin van de T-top. Normaal ligt het op de basislijn: de hoogte van het PQ-segment.',
+      'Elevatie: het J-punt ligt boven de basislijn. Depressie: eronder. Meet de afwijking in mm op het J-punt.',
+      'Een afwijking telt vooral als ze in twee of meer aangrenzende afleidingen voorkomt (bijvoorbeeld II, III en aVF), omdat die naar hetzelfde deel van het hart kijken. Elevatie met spiegelbeeldige depressie elders pleit sterk voor een infarct.'],
+    ['De T-top is het herstel (repolarisatie) van de ventrikels. Normaal is hij positief in I, II en V3–V6, negatief in aVR, en wisselend in III, aVL, aVF en V1.',
+      'Normaal wijst de T-top dezelfde kant op als het grootste deel van het QRS. Bij een bundeltakblok, LVH of pacing is een tegengestelde T-top een verwacht gevolg van het QRS (secundair) en op zichzelf geen ischemie.',
+      'Markeer per afleiding alleen wat afwijkt.'],
+    ['De QT-tijd loopt van het begin van het QRS tot het einde van de T-top: de totale tijd van activatie en herstel van de ventrikels. Meet de langste QT, meestal in II of V5.',
+      'Het einde van de T-top vind je met de raaklijnmethode: trek een lijn langs het steilst dalende deel van de T-top; waar die de basislijn snijdt, eindigt de T. Neem een U-golf niet mee.',
+      'De QT wordt korter naarmate de frequentie stijgt, daarom corrigeer je hem (QTc). Vuistregel bij 60–100/min: een QT korter dan de helft van de RR-afstand is meestal normaal.'],
+    null
+  ][i];
+};
+
 
 class App extends Component {
   constructor(...args) {
@@ -20,8 +165,18 @@ class App extends Component {
       qrs: '', morph: null, fasc: null, rprog: null, q: {}, sv1: '', rv5: '', ravl: '', sv3: '',
       st: {}, stMax: '', tw: {}, uw: false,
       qt: '', qtF: 'baz', notes: '', copied: false,
-      normal: {}, mode: 'steps', sheet: false, help: false, cal: false
+      normal: {}, mode: 'steps', sheet: false, help: false, cal: false, explain: this.loadExplain()
     };
+  }
+
+  loadExplain() {
+    try { return localStorage.getItem('ecg-uitleg') !== '0'; } catch (err) { return true; }
+  }
+
+  toggleExplain() {
+    const on = !this.state.explain;
+    try { localStorage.setItem('ecg-uitleg', on ? '1' : '0'); } catch (err) {}
+    this.setState({ explain: on });
   }
 
   num(v) {
@@ -107,6 +262,7 @@ class App extends Component {
     else if (k === 'k' || k === 'K') { if (this.lastVals) this.lastVals.copy(); }
     else if (k === 'o' || k === 'O') this.setMode(s.mode === 'steps' ? 'overview' : 'steps');
     else if (k === 'm' || k === 'M') this.setState({ cal: true });
+    else if (k === 'u' || k === 'U') this.toggleExplain();
     else if (k === '?') this.setState({ help: !s.help });
     else if (k === 'Enter' && s.mode === 'steps') {
       const first = this.panelEl && this.panelEl.querySelector('input.num-in');
@@ -223,7 +379,7 @@ class App extends Component {
         holdStop: () => this.holdStop(),
         ruler: o.ruler ? { min: o.ruler[0], max: o.ruler[1], step: o.ruler[2] || step, major: o.ruler[3], start: o.start != null ? o.start : o.ruler[0] } : null,
         num: v, set: (val) => this.setState({ [key]: String(val).replace('.', ','), copied: false }),
-        ev: ev ? ev[1] : (o.hint || ''), evCls: ev ? 'ev ' + ev[0] : 'ev'
+        ev: ev ? ev[1] : (o.hint || ''), evCls: ev ? 'ev ' + ev[0] : 'ev', how: o.how || ''
       };
     };
 
@@ -344,9 +500,9 @@ class App extends Component {
     const pEvAmp = (v) => { const c = v * gc; const extra = s.gain !== 10 ? ' — ' + r1(c) + ' mm bij 10 mm/mV' : ''; return c > 2.5 ? ['abn', 'Hoog: rechteratriumvergroting (P pulmonale)' + extra] : ['ok', 'Normaal (≤ 2,5 mm)' + extra]; };
     const prEv = (v) => v < 120 ? ['abn', 'Kort: pre-excitatie of laag-atriale/junctionele oorsprong'] : v > 200 ? ['abn', 'Verlengd: eerstegraads AV-blok'] : ['ok', 'Normaal (120–200 ms)'];
     const pFields = [
-      fld('pDur', 'Duur P-top', 'ms', 10, { start: 100, min: 0, ph: '—', ev: pEvDur, ruler: [40, 200] }),
-      fld('pAmp', 'Amplitude P-top in II', 'mm', 0.5, { start: 1.5, min: 0, ph: '—', ev: pEvAmp, ruler: [0, 6, 0.5, 2] }),
-      fld('pr', 'PQ-tijd', 'ms', 10, { start: 160, min: 0, ph: '—', ev: prEv, ruler: [60, 400] })
+      fld('pDur', 'Duur P-top', 'ms', 10, { how: 'Van het begin tot het einde van de P-top in afleiding II.', start: 100, min: 0, ph: '—', ev: pEvDur, ruler: [40, 200] }),
+      fld('pAmp', 'Amplitude P-top in II', 'mm', 0.5, { how: 'Hoogte van de top boven de basislijn; 1 klein hokje = 1 mm.', start: 1.5, min: 0, ph: '—', ev: pEvAmp, ruler: [0, 6, 0.5, 2] }),
+      fld('pr', 'PQ-tijd', 'ms', 10, { how: 'Van het begin van de P-top tot het begin van het QRS-complex.', start: 160, min: 0, ph: '—', ev: prEv, ruler: [60, 400] })
     ];
     const AVN = { norm: 'Normale AV-geleiding', av1: 'Eerstegraads AV-blok', mob1: 'Tweedegraads AV-blok, Mobitz I (Wenckebach)', mob2: 'Tweedegraads AV-blok, Mobitz II', two1: '2:1 AV-blok', av3: 'Derdegraads (totaal) AV-blok' };
     const pParts = [], pFlags = [];
@@ -366,7 +522,7 @@ class App extends Component {
 
     /* ---------- QRS ---------- */
     const qrsEv = (v) => v >= 120 ? ['abn', 'Verbreed (≥ 120 ms): bundeltakblok, ventriculaire oorsprong, pre-excitatie of pacing'] : v >= 110 ? ['abn', 'Licht verlengd (110–119 ms): incompleet blok / IVCD'] : ['ok', 'Normaal (< 110 ms)'];
-    const qrsFields = [fld('qrs', 'QRS-duur', 'ms', 10, { start: 90, min: 0, ph: '—', ev: qrsEv, ruler: [40, 240] })];
+    const qrsFields = [fld('qrs', 'QRS-duur', 'ms', 10, { how: 'Van de eerste uitslag tot het J-punt, in de afleiding met het breedste QRS.', start: 90, min: 0, ph: '—', ev: qrsEv, ruler: [40, 240] })];
     const MORPH = { norm: 'Normaal', rbbb: 'RBTB', lbbb: 'LBTB', irbbb: 'Incompleet RBTB', ivcd: 'Aspecifieke IVCD', paced: 'Ventriculair gepaced' };
     const FASC = { none: '', lafb: 'LAHB', lpfb: 'LPHB' };
     const RPROG = { norm: 'Normaal', poor: 'Slechte R-topprogressie', early: 'Vroege transitie' };
@@ -401,10 +557,10 @@ class App extends Component {
     ];
     const lvh = (sokOk && sok >= 35) || (cornOk && corn > cornThr);
     const lvhFields = [
-      fld('sv1', 'S in V1', 'mm', 1, { start: 10, min: 0, ph: '—', ruler: [0, 50] }),
-      fld('rv5', 'R in V5 of V6 (grootste)', 'mm', 1, { start: 15, min: 0, ph: '—', ruler: [0, 50] }),
-      fld('ravl', 'R in aVL', 'mm', 1, { start: 6, min: 0, ph: '—', ruler: [0, 50] }),
-      fld('sv3', 'S in V3', 'mm', 1, { start: 10, min: 0, ph: '—', ruler: [0, 50] })
+      fld('sv1', 'S in V1', 'mm', 1, { how: 'Diepte van de S-golf onder de basislijn.', start: 10, min: 0, ph: '—', ruler: [0, 50] }),
+      fld('rv5', 'R in V5 of V6 (grootste)', 'mm', 1, { how: 'Hoogte van de R-top boven de basislijn; neem de hoogste van V5 en V6.', start: 15, min: 0, ph: '—', ruler: [0, 50] }),
+      fld('ravl', 'R in aVL', 'mm', 1, { how: 'Hoogte van de R-top boven de basislijn.', start: 6, min: 0, ph: '—', ruler: [0, 50] }),
+      fld('sv3', 'S in V3', 'mm', 1, { how: 'Diepte van de S-golf onder de basislijn.', start: 10, min: 0, ph: '—', ruler: [0, 50] })
     ];
     const qrsParts = [];
     let qrsAbn = false;
@@ -436,7 +592,7 @@ class App extends Component {
     if ((terrUp.Anterior + terrUp.Septaal) >= 2 && stDown.some((l) => ['II', 'III', 'aVF'].indexOf(l) >= 0)) stNotes.push({ t: 'Inferieure depressie is spiegelbeeldig aan de anterieure elevatie.' });
     if (!stUp.length && stDown.filter((l) => ['V1', 'V2', 'V3'].indexOf(l) >= 0).length >= 2) stNotes.push({ t: 'Depressie in V1–V3: denk aan een posterieur infarct — maak V7–V9.' });
     if (stUp.length >= 7) stNotes.push({ t: 'Uitgebreide elevatie: pericarditis (let op PQ-depressie) vs. uitgebreid infarct.' });
-    const stFields = [fld('stMax', 'Grootste ST-deviatie', 'mm', 0.5, { start: 1, min: 0, ph: '—', ruler: [0, 10, 0.5, 2], hint: 'Op het J-punt, ten opzichte van het PQ-segment' })];
+    const stFields = [fld('stMax', 'Grootste ST-deviatie', 'mm', 0.5, { how: 'Grootste afstand tussen J-punt en basislijn, in welke afleiding dan ook.', start: 1, min: 0, ph: '—', ruler: [0, 10, 0.5, 2], hint: 'Op het J-punt, ten opzichte van het PQ-segment' })];
     const stMaxV = N('stMax') * gc;
     let stText = '';
     if (stUp.length || stDown.length) stText = [stUp.length ? 'Elevatie ' + stUp.join(', ') : null, stDown.length ? 'depressie ' + stDown.join(', ') : null].filter(Boolean).join('; ') + (!isNaN(stMaxV) ? ' (max ' + r1(stMaxV) + ' mm)' : '');
@@ -477,7 +633,7 @@ class App extends Component {
       const on = s.qtF === k;
       return { name, f, val: !isNaN(v) ? v + ' ms' : '—', ev: ev ? ev[1] : '', cls: 'qcard' + (ev ? ' ' + ev[0] : '') + (on ? ' on' : ''), pressed: on ? 'true' : 'false', pick: () => this.setState({ qtF: k, copied: false }) };
     });
-    const qtFields = [fld('qt', 'QT-tijd', 'ms', 10, { start: 400, min: 0, ph: '—', ruler: [200, 700], hint: 'Begin QRS tot einde T-top (raaklijnmethode)' })];
+    const qtFields = [fld('qt', 'QT-tijd', 'ms', 10, { how: 'Meet bij voorkeur in II of V5, in de afleiding met de langste QT.', start: 400, min: 0, ph: '—', ruler: [200, 700], hint: 'Begin QRS tot einde T-top (raaklijnmethode)' })];
     const qtNotes = [];
     if (qrsV >= 120) qtNotes.push({ t: 'Een verbreed QRS verlengt de QT-tijd: beoordeel het JT-interval (QT − QRS) of gebruik een voor QRS-duur gecorrigeerde formule.' });
     if (hrOk && hr > 90) qtNotes.push({ t: 'Frequentie > 90/min: Bazett overschat — gebruik bij voorkeur Fridericia.' });
@@ -636,12 +792,14 @@ class App extends Component {
     const st = s.step;
     const out = {
       setupLine: s.speed + ' mm/s · ' + s.gain + ' mm/mV · ' + (s.sex === 'F' ? 'Vrouw' : 'Man'),
-      reset: () => this.setState(Object.assign(this.initState(), { mode: s.mode })),
+      reset: () => this.setState(Object.assign(this.initState(), { mode: s.mode, explain: s.explain })),
       mode: s.mode, overview: s.mode === 'overview',
       setSteps: () => this.setMode('steps'), setOverview: () => this.setMode('overview'),
       steps: STEPS,
       sheetOpen: s.sheet, openSheet: () => this.setState({ sheet: true }), closeSheet: () => this.setState({ sheet: false }),
       helpOpen: s.help, toggleHelp: () => this.setState({ help: !s.help }),
+      explain: s.explain, toggleExplain: () => this.toggleExplain(),
+      guide: (i) => GUIDE(i, { speed: s.speed, large: Math.round(secLarge * 1000), small: Math.round(secSmall * 1000) }),
       calOpen: s.cal, openCal: () => this.setState({ cal: true }), closeCal: () => this.setState({ cal: false }),
       useMeasure: (k, val) => this.useMeasure(k, val),
       normalFor: (i) => ({ on: !!NM[i], pick: () => this.markNormal(i) }),
@@ -681,8 +839,8 @@ class App extends Component {
       qIChips: chips('qI', polOpts), qFChips: chips('qF', polOpts), qIIChips: chips('qII', polOpts),
       isoChips, candChips, hasCands: cands.length === 2,
       ampFields: [
-        fld('ampI', 'Netto QRS in afleiding I', 'mm', 1, { start: 0, signed: true, ph: '—', ruler: [-25, 25] }),
-        fld('ampF', 'Netto QRS in aVF', 'mm', 1, { start: 0, signed: true, ph: '—', ruler: [-25, 25] })
+        fld('ampI', 'Netto QRS in afleiding I', 'mm', 1, { how: 'Hoogte R min diepte (Q + S). Overwegend negatief QRS = negatief getal.', start: 0, signed: true, ph: '—', ruler: [-25, 25] }),
+        fld('ampF', 'Netto QRS in aVF', 'mm', 1, { how: 'Hoogte R min diepte (Q + S). Overwegend negatief QRS = negatief getal.', start: 0, signed: true, ph: '—', ruler: [-25, 25] })
       ],
       manFields: [fld('man', 'As', '°', 5, { start: 60, min: -180, max: 180, signed: true, ph: '—', ruler: [-180, 180, 5, 6] })],
       axBig, axCat, axCls, axNote, hasAxNote: !!axNote,
@@ -730,7 +888,8 @@ class App extends Component {
 
   render() {
     const v = this.vals();
-    const step = this.state.step;
+    const s = this.state;
+    const step = s.step;
     const MEAS = [2, 4, 5, 6, 8];
 
     const chipRow = (list) => html`<div class="chips">${list.map((c) => html`<button type="button" class=${c.cls} aria-pressed=${c.pressed} onClick=${c.pick}>${c.label}</button>`)}</div>`;
@@ -738,6 +897,7 @@ class App extends Component {
     const field = (f, showEv = true) => html`
       <div class="field" key=${f.id}>
         <label for=${f.id}>${f.label}</label>
+        ${v.explain && f.how && html`<p class="fhow">${f.how}</p>`}
         <div class="ctrl">
           <button type="button" class="sbtn" onClick=${f.dec} onPointerDown=${f.holdDec} onPointerUp=${f.holdStop} onPointerLeave=${f.holdStop} onPointerCancel=${f.holdStop} onContextMenu=${(e) => e.preventDefault()} aria-label=${'Verlaag ' + f.label}>−</button>
           <div class="inwrap"><input id=${f.id} class="num-in" type="text" inputmode=${f.mode} autocomplete="off" enterkeyhint="next" value=${f.value} onInput=${f.onInput} onKeyDown=${f.onKey} placeholder=${f.ph} /><span class="unit">${f.unit}</span></div>
@@ -749,6 +909,29 @@ class App extends Component {
     const fields = (list, showEv = true) => html`<div class="fields">${list.map((f) => field(f, showEv))}</div>`;
     const group = (label, body, help) => html`<div class="group"><div class="glabel">${label}</div>${help && html`<p class="ghelp">${help}</p>`}${body}</div>`;
     const leadGrid = (list) => html`<div class="leadgrid">${list.map((l) => html`<button type="button" class=${l.cls} onClick=${l.tap} aria-label=${l.aria}><b>${l.lead}</b><span>${l.tag}</span></button>`)}</div>`;
+    /* uitleg: definitie van de gekozen optie, plus een uitklapbare lijst met alle opties */
+    const xp = (key, sel, summary) => {
+      if (!v.explain) return null;
+      const m = XP[key];
+      const cur = sel != null && sel !== false ? m[sel] : null;
+      return html`<div class="xp">
+        ${cur && html`<div class="xdef"><b>${cur[0]}.</b> ${cur[1]}</div>`}
+        ${Object.keys(m).length > 1 && html`<details class="xmore"><summary>${summary || 'Hoe herken je elke optie?'}</summary>
+          <dl>${Object.keys(m).map((k) => html`<div class=${String(sel) === k ? 'xi on' : 'xi'}><dt>${m[k][0]}</dt><dd>${m[k][1]}</dd></div>`)}</dl>
+        </details>`}
+      </div>`;
+    };
+    const xpAll = (key, summary) => {
+      if (!v.explain) return null;
+      const m = XP[key];
+      return html`<details class="xmore"><summary>${summary}</summary>
+        <dl>${Object.keys(m).map((k) => html`<div class="xi"><dt>${m[k][0]}</dt><dd>${m[k][1]}</dd></div>`)}</dl>
+      </details>`;
+    };
+    const guideBox = (i) => {
+      const g = v.explain ? v.guide(i) : null;
+      return g ? html`<div class="guide"><div class="guide-h">Zo pak je het aan</div><ul>${g.map((t) => html`<li>${t}</li>`)}</ul></div>` : null;
+    };
     const notes = (list) => list.length ? html`<div class="notes">${list.map((x) => html`<div class="n">${x.t}</div>`)}</div>` : null;
     const sumRows = v.sumRows.map((r) => html`<div class=${r.cls}><span class="k">${r.k}</span><span class="v">${r.v}</span></div>`);
     const T = (x, y, s, w, fill, txt) => html`<text x=${x} y=${y} font-size=${s} font-weight=${w} fill=${fill} text-anchor="middle" dominant-baseline="middle">${txt}</text>`;
@@ -802,23 +985,24 @@ class App extends Component {
     /* ---------- step bodies ---------- */
     const bodies = [
       () => html`<div class="stack">
-        ${group('Papiersnelheid', chipRow(v.speedChips))}
-        <div class="group"><div class="glabel">IJking (versterking)</div>${chipRow(v.gainChips)}<p class="note">Spanningswaarden die je later invoert (P-amplitude, LVH-criteria, ST-deviatie) worden omgerekend naar de standaard 10 mm/mV.</p></div>
+        ${group('Papiersnelheid', [chipRow(v.speedChips), xp('speed', s.speed)])}
+        <div class="group"><div class="glabel">IJking (versterking)</div>${chipRow(v.gainChips)}${xp('gain', s.gain)}<p class="note">Spanningswaarden die je later invoert (P-amplitude, LVH-criteria, ST-deviatie) worden omgerekend naar de standaard 10 mm/mV.</p></div>
         ${group('Geslacht', chipRow(v.sexChips), 'Bepaalt de afkapwaarden voor QTc en Cornell.')}
       </div>`,
 
       () => html`<div class="stack">
-        ${group('RR-intervallen', chipRow(v.regChips))}
-        ${group('Atriale activiteit', chipRow(v.pwChips))}
-        ${group('Na elke P-top een QRS, voor elk QRS een P-top?', chipRow(v.conChips))}
-        ${group('P-top positief in II, negatief in aVR?', chipRow(v.pupChips))}
+        ${group('RR-intervallen', [chipRow(v.regChips), xp('reg', s.reg)])}
+        ${group('Atriale activiteit', [chipRow(v.pwChips), xp('pw', s.pw)])}
+        ${group('Na elke P-top een QRS, voor elk QRS een P-top?', [chipRow(v.conChips), xp('conduct', s.conduct, 'Wat betekent dit?')])}
+        ${group('P-top positief in II, negatief in aVR?', [chipRow(v.pupChips), xp('pup', s.pup, 'Waarom is dit belangrijk?')])}
         ${v.showSugg && html`<div class="sugg"><span>Suggestie: <b>${v.suggName}</b></span><button type="button" class="btn small" onClick=${v.applySugg}>Overnemen</button></div>`}
-        ${group('Ritme', chipRow(v.rhChips))}
+        ${group('Ritme', [chipRow(v.rhChips), xp('rhythm', s.rhythm, 'Kenmerken van elk ritme')])}
         ${v.conductNote && html`<div class="notes"><div class="n">Geen 1:1-relatie tussen P en QRS — classificeer het AV-blok in stap 5.</div></div>`}
       </div>`,
 
       () => html`<div class="stack">
         ${tabRow(v.rateTabs, 'Methode frequentie')}
+        ${v.explain && html`<div class="xdef"><b>${XP.rateM[s.rateM][0]}.</b> ${XP.rateM[s.rateM][1]}</div>`}
         ${v.rateM === 'count' && html`<div class="tapper">
           <button type="button" class="tapbtn" onClick=${v.tapQrs}>Tik per QRS-complex<span>${v.countVal}</span></button>
           <button type="button" class="btn ghost" onClick=${v.tapReset}>Opnieuw</button>
@@ -839,7 +1023,9 @@ class App extends Component {
         </div>
         <div class="stack">
           ${tabRow(v.axTabs, 'Methode as')}
+          ${v.explain && html`<div class="xdef"><b>${XP.axM[s.axM][0]}.</b> ${XP.axM[s.axM][1]}</div>`}
           ${v.axQuad && html`<div class="stack">
+            ${xpAll('pol', 'Wanneer is een QRS positief, negatief of iso-elektrisch?')}
             ${group('Netto QRS in afleiding I', chipRow(v.qIChips))}
             ${group('Netto QRS in aVF', chipRow(v.qFChips))}
             ${group('Netto QRS in afleiding II', chipRow(v.qIIChips), 'Onderscheidt normaal (0° tot −30°) van linkerasdeviatie als I positief en aVF negatief is.')}
@@ -859,18 +1045,19 @@ class App extends Component {
 
       () => html`<div class="stack">
         ${fields(v.pFields)}
-        ${group('AV-geleiding', chipRow(v.avChips))}
-        <div class="group"><div class="glabel">Pre-excitatie</div>${chipRow(v.deltaChip)}<p class="note">Korte PQ-tijd met deltagolf en verbreed QRS: WPW-patroon.</p></div>
+        ${group('AV-geleiding', [chipRow(v.avChips), xp('av', s.av, 'Hoe herken je elk type AV-blok?')])}
+        <div class="group"><div class="glabel">Pre-excitatie</div>${chipRow(v.deltaChip)}${v.explain && html`<div class="xdef"><b>${XP.delta.true[0]}.</b> ${XP.delta.true[1]}</div>`}<p class="note">Korte PQ-tijd met deltagolf en verbreed QRS: WPW-patroon.</p></div>
       </div>`,
 
       () => html`<div class="stack">
         ${fields(v.qrsFields)}
-        ${group('Morfologie', chipRow(v.morphChips))}
-        ${group('Hemiblok', chipRow(v.fascChips), v.hasFascHint ? v.fascHint : null)}
-        ${group('R-topprogressie', chipRow(v.rprogChips))}
-        ${group('Pathologische Q-golven', leadGrid(v.qGrid), 'Tik de afleidingen aan. Pathologisch: ≥ 40 ms of ≥ 25% van de R-top, in twee of meer aangrenzende afleidingen.')}
+        ${group('Morfologie', [chipRow(v.morphChips), xp('morph', s.morph, 'Hoe herken je elk type?')])}
+        ${group('Hemiblok', [chipRow(v.fascChips), xp('fasc', s.fasc)], v.hasFascHint ? v.fascHint : null)}
+        ${group('R-topprogressie', [chipRow(v.rprogChips), xp('rprog', s.rprog)])}
+        ${group('Pathologische Q-golven', [leadGrid(v.qGrid), xpAll('q', 'Wanneer is een Q-golf pathologisch?')], 'Tik de afleidingen aan. Pathologisch: ≥ 40 ms of ≥ 25% van de R-top, in twee of meer aangrenzende afleidingen.')}
         <div class="group">
           <div class="glabel">LVH-spanningscriteria</div>
+          ${v.explain && html`<p class="ghelp">Bij een verdikte linkerventrikelwand worden de uitslagen groter. Meet de genoemde golven in mm; de app telt ze op en vergelijkt ze met de afkapwaarden. Spanning alleen is niet bewijzend, zeker niet bij jonge, slanke mensen.</p>`}
           ${fields(v.lvhFields, false)}
           <div class="cards">${v.lvhCards.map((k) => html`<div class=${k.cls}><span class="cn">${k.name}</span><span class="cv">${k.val}</span><span class="cc">${k.crit}</span></div>`)}</div>
         </div>
@@ -878,6 +1065,7 @@ class App extends Component {
 
       () => html`<div class="stack">
         ${leadGrid(v.stGrid)}
+        ${xpAll('st', 'Wat telt als elevatie of depressie?')}
         ${fields(v.stFields)}
         <div class="terrs">${v.terrs.map((t) => html`<div class=${t.cls}><span class="tn">${t.name}</span><span class="tl">${t.leads}</span><span class="tt">${t.text}</span></div>`)}</div>
         ${notes(v.stNotes)}
@@ -886,7 +1074,9 @@ class App extends Component {
 
       () => html`<div class="stack">
         ${leadGrid(v.tGrid)}
+        ${xpAll('tw', 'Wat telt als negatief, afgevlakt of spits?')}
         ${chipRow(v.uChip)}
+        ${v.explain && html`<div class="xdef"><b>${XP.uw.true[0]}.</b> ${XP.uw.true[1]}</div>`}
         ${notes(v.tNotes)}
         <p class="note">Een negatieve T-top in aVR is normaal en telt niet mee. Markeer alleen wat afwijkt van het verwachte patroon.</p>
       </div>`,
@@ -932,6 +1122,7 @@ class App extends Component {
         <h2>${v.stepTitle}</h2>
         <p class="lead-in">${v.stepLead}</p>
       </div>
+      ${guideBox(step)}
       ${bodies[step]()}
       <div class="foot">
         <button type="button" class="btn ghost" onClick=${v.prev} disabled=${v.isFirst}>Vorige</button>
@@ -952,6 +1143,7 @@ class App extends Component {
       ${v.steps.map(([title, lead], i) => html`<section class="osec" id=${'sec-' + i}>
         <div class="osec-h"><span class="onum">${i + 1}</span><h3>${title}</h3>${tools(i)}</div>
         ${i < 9 && html`<p class="lead-in">${lead}</p>`}
+        ${guideBox(i)}
         ${bodies[i]()}
       </section>`)}`;
 
@@ -967,6 +1159,7 @@ class App extends Component {
       <button type="button" class=${v.overview ? 'tab' : 'tab on'} aria-pressed=${!v.overview} onClick=${v.setSteps}>Stappen</button>
       <button type="button" class=${v.overview ? 'tab on' : 'tab'} aria-pressed=${v.overview} onClick=${v.setOverview}>Overzicht</button>
     </div>
+    <button type="button" class=${v.explain ? 'btn ghost small xbtn on' : 'btn ghost small xbtn'} aria-pressed=${v.explain} onClick=${v.toggleExplain} title="Uitleg tonen of verbergen (sneltoets: U)">Uitleg</button>
     <button type="button" class="btn ghost small calhdr" onClick=${v.openCal}>Meetlat</button>
     <button type="button" class="btn ghost small keysbtn" onClick=${v.toggleHelp} aria-label="Sneltoetsen">?</button>
     <button type="button" class="btn ghost small" onClick=${v.reset}>Nieuw ECG</button>
@@ -1003,6 +1196,7 @@ class App extends Component {
         <span><kbd>N</kbd></span><span>Huidige stap: alles normaal</span>
         <span><kbd>O</kbd></span><span>Wissel tussen stappen en overzicht</span>
         <span><kbd>M</kbd></span><span>Meetlat openen</span>
+        <span><kbd>U</kbd></span><span>Uitleg tonen of verbergen</span>
         <span><kbd>K</kbd></span><span>Verslag kopiëren</span>
         <span><kbd>?</kbd></span><span>Dit overzicht</span>
       </div>
